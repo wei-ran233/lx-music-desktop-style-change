@@ -62,6 +62,14 @@ const router = createRouter({
         name: 'Setting',
       },
     },
+    {
+      path: '/dj',
+      name: 'Dj',
+      component: require('./views/Dj/index.vue').default,
+      meta: {
+        name: 'Dj',
+      },
+    },
     { path: '/:pathMatch(.*)*', redirect: '/search' },
   ],
   linkActiveClass: 'active-link',

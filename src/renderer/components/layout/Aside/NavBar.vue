@@ -74,6 +74,15 @@ export default {
           name: 'Download',
         },
         {
+          to: '/dj',
+          tips: t('ai_dj'),
+          icon: '#icon-dj',
+          iconSize: '0 0 24 24',
+          size,
+          enable: true,
+          name: 'Dj',
+        },
+        {
           to: '/setting',
           tips: t('setting'),
           icon: '#icon-setting',

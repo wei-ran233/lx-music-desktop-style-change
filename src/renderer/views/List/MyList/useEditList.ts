@@ -13,7 +13,12 @@ export default ({ dom_lists_list }: {
 
   const handleRename = (index: number) => {
     // console.log(index)
-    const dom = dom_lists_list.value?.querySelectorAll('.user-list')[index]
+    let dom: Element | null | undefined
+    if (index === -3) {
+      dom = dom_lists_list.value?.querySelector('.local-list')
+    } else {
+      dom = dom_lists_list.value?.querySelectorAll('.user-list')[index]
+    }
     if (!dom) return
     void nextTick(() => {
       dom.classList.add(styles.editing)

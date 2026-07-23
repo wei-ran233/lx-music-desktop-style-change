@@ -103,6 +103,9 @@ const defaultSetting: LX.AppSetting = {
   'desktopLyric.style.isFontWeightLine': true,
   'desktopLyric.style.isFontWeightExtended': true,
 
+  'player.isSwitchPlayListOnPlay': true,
+  'player.isAddAllToPlayDirectoryOnPlay': true,
+
   'list.isClickPlayList': false,
   'list.isShowSource': true,
   'list.isSaveScrollLocation': true,

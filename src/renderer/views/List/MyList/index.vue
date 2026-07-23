@@ -46,6 +46,22 @@
         </span>
       </li>
       <li
+        class="default-list local-list" :class="[$style.listsItem, {[$style.active]: localList.id == listId}, {[$style.clicked]: rightClickItemIndex == -3}, {[$style.fetching]: fetchingListStatus[localList.id]}]"
+        :aria-label="localList.name.startsWith('list__') ? $t(localList.name) : localList.name" :aria-selected="localList.id == listId"
+        @contextmenu="handleListsItemRigthClick($event, -3)" @click="handleListToggle(localList.id)"
+      >
+        <span :class="$style.listsLabel">
+          <transition name="list-active">
+            <svg-icon v-if="localList.id == listId" name="angle-right-solid" :class="$style.activeIcon" />
+          </transition>
+          {{ localList.name.startsWith('list__') ? $t(localList.name) : localList.name }}
+        </span>
+        <base-input
+          :class="$style.listsInput" type="text" :value="localList.name.startsWith('list__') ? $t(localList.name) : localList.name"
+          @keyup.enter="handleSaveLocalListName($event)" @blur="handleSaveLocalListName($event)"
+        />
+      </li>
+      <li
         v-for="(item, index) in userLists"
         :key="item.id" class="user-list"
         :class="[$style.listsItem, {[$style.active]: item.id == listId}, {[$style.clicked]: rightClickItemIndex == index}, {[$style.fetching]: fetchingListStatus[item.id]}]"
@@ -86,7 +102,7 @@ import DuplicateMusicModal from './components/DuplicateMusicModal.vue'
 import ListSortModal from './components/ListSortModal.vue'
 import ListUpdateModal from './components/ListUpdateModal.vue'
 
-import { defaultList, loveList, userLists, fetchingListStatus } from '@renderer/store/list/state'
+import { defaultList, loveList, localList, userLists, fetchingListStatus } from '@renderer/store/list/state'
 import { removeUserList } from '@renderer/store/list/action'
 
 import { ref, watch } from '@common/utils/vueTools'
@@ -220,10 +236,17 @@ export default {
       })
     })
 
+    const handleSaveLocalListName = (event) => {
+      const val = event.target.value.trim()
+      if (val) localList.name = val
+    }
+    void localList.id
+
     return {
       rightClickItemIndex,
       defaultList,
       loveList,
+      localList,
       userLists,
       fetchingListStatus,
       dom_lists_list,
@@ -233,6 +256,7 @@ export default {
       isShowDuplicateMusicModal,
       duplicateListInfo,
       handleSaveListName,
+      handleSaveLocalListName,
       isShowNewList,
       isNewListLeave,
       handleCreateList,

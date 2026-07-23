@@ -8,6 +8,10 @@ dd
   .gap-top
     base-checkbox(id="setting_player_save_play_time" :model-value="appSetting['player.isSavePlayTime']" :label="$t('setting__play_save_play_time')" @update:model-value="updateSetting({'player.isSavePlayTime': $event})")
   .gap-top
+    base-checkbox(id="setting_player_switch_play_list_on_play" :model-value="appSetting['player.isSwitchPlayListOnPlay']" :label="$t('setting__play_switch_play_list_on_play')" @update:model-value="updateSetting({'player.isSwitchPlayListOnPlay': $event})")
+  .gap-top
+    base-checkbox(id="setting_player_add_all_to_play_directory_on_play" :model-value="appSetting['player.isAddAllToPlayDirectoryOnPlay']" :label="$t('setting__play_add_all_to_play_directory_on_play')" @update:model-value="updateSetting({'player.isAddAllToPlayDirectoryOnPlay': $event})")
+  .gap-top
     base-checkbox(id="setting_player_auto_clean_played_list" :model-value="appSetting['player.isAutoCleanPlayedList']" :label="$t('setting__play_auto_clean_played_list')" @update:model-value="updateSetting({'player.isAutoCleanPlayedList': $event})")
     svg-icon(class="help-icon" name="help-circle-outline" :aria-label="$t('setting__play_auto_clean_played_list_tip')")
   .gap-top

@@ -12,7 +12,12 @@ export const defaultList = markRaw<LX.List.MyDefaultListInfo>({
 export const loveList = markRaw<LX.List.MyLoveListInfo>({
   id: LIST_IDS.LOVE,
   name: 'list__name_love',
-  // name: '我的收藏',
+  // name: '我的喜欢',
+})
+export const localList = reactive<{ id: string, name: string }>({
+  id: LIST_IDS.LOCAL,
+  name: 'list__name_local',
+  // name: '本地音乐',
 })
 export const tempList = markRaw<LX.List.MyTempListInfo>({
   id: LIST_IDS.TEMP,

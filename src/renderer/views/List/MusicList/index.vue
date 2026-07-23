@@ -1,5 +1,24 @@
 <template>
   <div :class="$style.list">
+    <div :class="$style.listHeader">
+      <div :class="$style.headerIcon">
+        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" width="100%" height="100%" viewBox="0 0 247.498 247.498" space="preserve">
+          <use xlink:href="#icon-musicFolder" />
+        </svg>
+      </div>
+      <div :class="$style.headerInfo">
+        <h2 :class="$style.headerTitle" :title="currentListName">{{ currentListName }}</h2>
+        <span :class="$style.headerSubTitle">{{ $t('song_sum', { num: list.length }) }}</span>
+      </div>
+      <div :class="$style.headerActions">
+        <base-btn v-if="list.length" :class="$style.headerPlayBtn" @click="handlePlayAll">
+          <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" space="preserve" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px;">
+            <use xlink:href="#icon-play-outline" />
+          </svg>
+          {{ $t('list__play') }}
+        </base-btn>
+      </div>
+    </div>
     <div class="thead">
       <table>
         <thead>
@@ -104,6 +123,9 @@
 </template>
 
 <script>
+import { computed } from '@common/utils/vueTools'
+import { LIST_IDS } from '@common/constants'
+import { defaultList, loveList, localList, tempList, userLists } from '@renderer/store/list/state'
 import { clipboardWriteText } from '@common/utils/electron'
 import { assertApiSupport } from '@renderer/store/utils'
 import SearchList from './components/SearchList.vue'
@@ -300,7 +322,27 @@ export default {
       listRef.value.scrollTo(0, true)
     }
 
+    const currentListName = computed(() => {
+      const id = props.listId
+      if (!id || id === LIST_IDS.DEFAULT) return defaultList.name.startsWith('list__') ? window.i18n.t(defaultList.name) : defaultList.name
+      if (id === LIST_IDS.LOVE) return loveList.name.startsWith('list__') ? window.i18n.t(loveList.name) : loveList.name
+      if (id === LIST_IDS.LOCAL) return localList.name.startsWith('list__') ? window.i18n.t(localList.name) : localList.name
+      if (id === LIST_IDS.DOWNLOAD) return window.i18n.t('download')
+      if (id === LIST_IDS.TEMP) return tempList.name
+      const targetUserList = userLists.find(l => l.id === id)
+      if (targetUserList) return targetUserList.name
+      return window.i18n.t('default_list')
+    })
+
+    const handlePlayAll = () => {
+      if (list.value.length) {
+        handlePlayMusic(0)
+      }
+    }
+
     return {
+      currentListName,
+      handlePlayAll,
       listItemHeight,
       handleListItemClick,
       selectedList,
@@ -426,6 +468,62 @@ export default {
     font-size: 24px;
     color: var(--color-font-label);
   }
+}
+
+.listHeader {
+  flex: none;
+  display: flex;
+  align-items: center;
+  padding: 8px 15px;
+  border-bottom: 1px solid var(--color-primary-light-900-alpha-200);
+}
+
+.headerIcon {
+  width: 36px;
+  height: 36px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 10px;
+  color: var(--color-primary);
+
+  svg {
+    width: 28px;
+    height: 28px;
+    fill: currentColor;
+  }
+}
+
+.headerInfo {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.headerTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--color-font);
+  margin: 0 0 2px 0;
+  .mixin-ellipsis-1();
+}
+
+.headerSubTitle {
+  font-size: 11px;
+  color: var(--color-font-label);
+}
+
+.headerActions {
+  flex: none;
+  display: flex;
+  align-items: center;
+}
+
+.headerPlayBtn {
+  font-size: 12px;
+  padding: 4px 12px;
 }
 
 </style>

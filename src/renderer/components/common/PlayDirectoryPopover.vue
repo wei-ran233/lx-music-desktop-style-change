@@ -66,7 +66,7 @@ import { computed, ref, nextTick, useCssModule } from '@common/utils/vueTools'
 import { playInfo, playMusicInfo } from '@renderer/store/player/state'
 import { getList } from '@renderer/store/player/action'
 import { playList } from '@renderer/core/player/action'
-import { defaultList, loveList, tempList, userLists } from '@renderer/store/list/state'
+import { defaultList, loveList, localList, tempList, userLists } from '@renderer/store/list/state'
 import { removeListMusics, clearListMusics } from '@renderer/store/list/action'
 import { removeDownloadTasks } from '@renderer/store/download/action'
 import { downloadList } from '@renderer/store/download/state'
@@ -92,6 +92,7 @@ const listName = computed(() => {
   const id = currentListId.value
   if (!id || id === LIST_IDS.DEFAULT) return defaultList.name ? window.i18n.t(defaultList.name as any) : window.i18n.t('default_list')
   if (id === LIST_IDS.LOVE) return loveList.name ? window.i18n.t(loveList.name as any) : window.i18n.t('love_list')
+  if (id === LIST_IDS.LOCAL) return localList.name.startsWith('list__') ? window.i18n.t(localList.name as any) : localList.name
   if (id === LIST_IDS.DOWNLOAD) return window.i18n.t('download' as any)
   if (id === LIST_IDS.TEMP) return tempList.name || window.i18n.t('default_list')
   const targetUserList = userLists.find(l => l.id === id)

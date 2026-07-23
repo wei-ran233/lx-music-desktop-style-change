@@ -1,6 +1,6 @@
 import { computed, ref, reactive, nextTick } from '@common/utils/vueTools'
 import { useI18n } from '@renderer/plugins/i18n'
-import { userLists, defaultList, loveList } from '@renderer/store/list/state'
+import { userLists, defaultList, loveList, localList } from '@renderer/store/list/state'
 import musicSdk from '@renderer/utils/musicSdk'
 import { addLocalFile } from './actions'
 
@@ -105,6 +105,11 @@ export default ({
         menuControl.remove = false
         menuControl.sync = false
         break
+      case -3:
+        menuControl.rename = true
+        menuControl.remove = false
+        menuControl.sync = false
+        break
       default:
         menuControl.rename = true
         menuControl.remove = true
@@ -137,6 +142,9 @@ export default ({
         break
       case -1:
         list = loveList
+        break
+      case -3:
+        list = localList
         break
       default:
         list = userLists[index]

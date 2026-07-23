@@ -1,22 +1,63 @@
 <template>
   <div :class="$style.list">
-    <div :class="$style.listHeader">
-      <div :class="$style.headerIcon">
-        <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" width="100%" height="100%" viewBox="0 0 247.498 247.498" space="preserve">
-          <use xlink:href="#icon-musicFolder" />
-        </svg>
-      </div>
-      <div :class="$style.headerInfo">
-        <h2 :class="$style.headerTitle" :title="currentListName">{{ currentListName }}</h2>
-        <span :class="$style.headerSubTitle">{{ $t('song_sum', { num: list.length }) }}</span>
-      </div>
-      <div :class="$style.headerActions">
-        <base-btn v-if="list.length" :class="$style.headerPlayBtn" @click="handlePlayAll">
-          <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" space="preserve" style="width: 14px; height: 14px; margin-right: 4px; vertical-align: -2px;">
-            <use xlink:href="#icon-play-outline" />
+    <div :class="$style.headerBanner">
+      <div
+        :class="$style.bannerCover"
+        :style="headerCover ? { backgroundImage: `url(${headerCover})` } : {}"
+      >
+        <div v-if="!headerCover" :class="$style.bannerDefaultCover">
+          <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 0 247.498 247.498" space="preserve" style="width: 44px; height: 44px; fill: currentColor;">
+            <use xlink:href="#icon-musicFolder" />
           </svg>
-          {{ $t('list__play') }}
-        </base-btn>
+        </div>
+        <span v-if="list.length" :class="$style.playCountBadge">
+          🎧 {{ list.length }}
+        </span>
+      </div>
+
+      <div :class="$style.bannerMain">
+        <div :class="$style.bannerTitleRow">
+          <h1 :class="$style.bannerTitle" :title="currentListName">{{ currentListName }}</h1>
+        </div>
+
+        <div :class="$style.bannerMetaRow">
+          <span :class="$style.bannerAuthor">
+            LX Player
+          </span>
+          <span v-if="currentListMeta.subtitle" :class="$style.bannerSubTitle">
+            {{ currentListMeta.subtitle }}
+          </span>
+        </div>
+
+        <div v-if="currentListMeta.tags && currentListMeta.tags.length" :class="$style.bannerTagsRow">
+          <span
+            v-for="(tag, idx) in currentListMeta.tags"
+            :key="idx"
+            :class="$style.tagBadge"
+          >
+            {{ tag }}
+          </span>
+        </div>
+
+        <div :class="$style.bannerActionsRow">
+          <base-btn
+            v-if="list.length"
+            :class="$style.primaryPlayBtn"
+            @click="handlePlayAll"
+          >
+            <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" space="preserve" style="width: 13px; height: 13px; margin-right: 4px; fill: currentColor; vertical-align: -1px;">
+              <use xlink:href="#icon-play-outline" />
+            </svg>
+            {{ $t('list__play') }}
+          </base-btn>
+
+          <base-btn
+            :class="$style.secondaryBtn"
+            @click="isShowMetaModal = true"
+          >
+            {{ $t('list_edit_meta_title') }}
+          </base-btn>
+        </div>
       </div>
     </div>
     <div class="thead">
@@ -60,7 +101,12 @@
               <div v-else class="num">{{ index + 1 }}</div>
             </transition>
           </div>
-          <div class="list-item-cell auto name" :aria-label="item.name">
+          <div class="list-item-cell auto name" :aria-label="item.name" style="display: flex; align-items: center;">
+            <div
+              v-if="item.pic || item.img"
+              :class="$style.songThumb"
+              :style="{ backgroundImage: `url(${item.pic || item.img})` }"
+            />
             <span class="select name">{{ item.name }}</span>
             <span v-if="isShowSource" class="no-select label-source">{{ item.source }}</span>
           </div>
@@ -92,7 +138,12 @@
               <div v-else class="num">{{ index + 1 }}</div>
             </transition>
           </div>
-          <div class="list-item-cell auto name">
+          <div class="list-item-cell auto name" style="display: flex; align-items: center;">
+            <div
+              v-if="item.pic || item.img"
+              :class="$style.songThumb"
+              :style="{ backgroundImage: `url(${item.pic || item.img})` }"
+            />
             <span class="select name" :aria-label="item.name">{{ item.name }}</span>
             <span v-if="isShowSource" class="no-select label-source">{{ item.source }}</span>
           </div>
@@ -118,19 +169,22 @@
     <search-list :list="list" :visible="isShowSearchBar" @action="handleMusicSearchAction" />
     <music-sort-modal v-model:show="isShowMusicSortModal" :music-info="selectedSortMusicInfo" :selected-num="selectedNum" @confirm="sortMusic" />
     <music-toggle-modal v-model:show="isShowMusicToggleModal" :music-info="selectedToggleMusicInfo" @toggle="toggleSource" />
+    <list-meta-edit-modal v-model:visible="isShowMetaModal" :list-id="listId" />
     <base-menu v-model="isShowItemMenu" :menus="menus" :xy="menuLocation" item-name="name" @menu-click="handleMenuClick" />
   </div>
 </template>
 
 <script>
-import { computed } from '@common/utils/vueTools'
+import { ref, computed } from '@common/utils/vueTools'
 import { LIST_IDS } from '@common/constants'
 import { defaultList, loveList, localList, tempList, userLists } from '@renderer/store/list/state'
+import { getListMeta } from '@renderer/store/list/listMeta'
 import { clipboardWriteText } from '@common/utils/electron'
 import { assertApiSupport } from '@renderer/store/utils'
 import SearchList from './components/SearchList.vue'
 import MusicSortModal from './components/MusicSortModal.vue'
 import MusicToggleModal from './components/MusicToggleModal.vue'
+import ListMetaEditModal from '../MyList/components/ListMetaEditModal.vue'
 import useListInfo from './useListInfo'
 import useList from './useList'
 import useMenu from './useMenu'
@@ -149,6 +203,7 @@ export default {
     SearchList,
     MusicSortModal,
     MusicToggleModal,
+    ListMetaEditModal,
   },
   props: {
     listId: {
@@ -334,14 +389,29 @@ export default {
       return window.i18n.t('default_list')
     })
 
-    const handlePlayAll = () => {
+    const isShowMetaModal = ref(false)
+
+    const currentListMeta = computed(() => {
+      return getListMeta(props.listId)
+    })
+
+    const headerCover = computed(() => {
+      const meta = currentListMeta.value
+      if (meta.customPic) return meta.customPic
       if (list.value.length) {
-        handlePlayMusic(0)
+        const first = list.value[0]
+        if (first.pic) return first.pic
+        if (first.img) return first.img
+        if (first.meta?.picUrl) return first.meta.picUrl
       }
-    }
+      return ''
+    })
 
     return {
       currentListName,
+      currentListMeta,
+      headerCover,
+      isShowMetaModal,
       handlePlayAll,
       listItemHeight,
       handleListItemClick,
@@ -470,60 +540,138 @@ export default {
   }
 }
 
-.listHeader {
+.headerBanner {
   flex: none;
   display: flex;
-  align-items: center;
-  padding: 8px 15px;
+  align-items: flex-start;
+  padding: 16px 20px;
+  background: var(--color-content-background);
   border-bottom: 1px solid var(--color-primary-light-900-alpha-200);
 }
 
-.headerIcon {
-  width: 36px;
-  height: 36px;
+.bannerCover {
+  flex: none;
+  width: 110px;
+  height: 110px;
+  border-radius: 8px;
+  background-position: center;
+  background-size: cover;
+  background-color: var(--color-primary-light-900-alpha-100);
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  margin-right: 18px;
   display: flex;
   align-items: center;
   justify-content: center;
-  margin-right: 10px;
-  color: var(--color-primary);
-
-  svg {
-    width: 28px;
-    height: 28px;
-    fill: currentColor;
-  }
 }
 
-.headerInfo {
+.bannerDefaultCover {
+  color: var(--color-primary);
+  opacity: 0.8;
+}
+
+.playCountBadge {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  padding: 2px 6px;
+  background-color: rgba(0, 0, 0, 0.45);
+  color: #fff;
+  font-size: 10px;
+  border-radius: 10px;
+  backdrop-filter: blur(4px);
+}
+
+.bannerMain {
   flex: 1;
   min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
+  justify-content: space-between;
+  min-height: 110px;
 }
 
-.headerTitle {
-  font-size: 15px;
-  font-weight: 600;
+.bannerTitleRow {
+  margin-bottom: 4px;
+}
+
+.bannerTitle {
+  font-size: 18px;
+  font-weight: 700;
   color: var(--color-font);
-  margin: 0 0 2px 0;
+  margin: 0;
   .mixin-ellipsis-1();
 }
 
-.headerSubTitle {
-  font-size: 11px;
+.bannerMetaRow {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 12px;
   color: var(--color-font-label);
+  margin-bottom: 6px;
 }
 
-.headerActions {
-  flex: none;
+.bannerAuthor {
+  font-weight: 500;
+}
+
+.bannerSubTitle {
+  opacity: 0.85;
+  .mixin-ellipsis-1();
+}
+
+.bannerTagsRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.tagBadge {
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background-color: var(--color-primary-light-900-alpha-200);
+  color: var(--color-primary);
+  font-weight: 500;
+}
+
+.bannerActionsRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.primaryPlayBtn {
+  font-size: 12px;
+  padding: 5px 16px;
+  border-radius: 16px;
+  background-color: var(--color-primary);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  font-weight: 600;
+}
+
+.secondaryBtn {
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 16px;
   display: flex;
   align-items: center;
 }
 
-.headerPlayBtn {
-  font-size: 12px;
-  padding: 4px 12px;
+.songThumb {
+  width: 26px;
+  height: 26px;
+  border-radius: 4px;
+  background-position: center;
+  background-size: cover;
+  background-color: var(--color-primary-light-900-alpha-100);
+  margin-right: 8px;
+  flex: none;
 }
 
 </style>

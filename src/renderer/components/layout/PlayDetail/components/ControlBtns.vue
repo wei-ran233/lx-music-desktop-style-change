@@ -18,6 +18,7 @@ div(:class="$style.footerLeftControlBtns")
   common-playback-rate-btn
   common-volume-btn
   common-toggle-play-mode-btn
+  common-play-directory-popover
   button(:class="$style.footerLeftControlBtn" :aria-label="$t('player__add_music_to')" @click="isShowAddMusicTo = true")
     svg(version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 0 512 512" space="preserve")
       use(xlink:href="#icon-add-2")
@@ -70,6 +71,7 @@ export default {
     } = useToggleDesktopLyric()
 
     const isShowAddMusicTo = ref(false)
+    const isShowPlayDirectoryModal = ref(false)
 
     const toggleAudioVisualization = async() => {
       const newSetting = !appSetting['player.audioVisualization']
@@ -99,6 +101,7 @@ export default {
       toggleLockDesktopLyric,
       toggleAudioVisualization,
       isShowAddMusicTo,
+      isShowPlayDirectoryModal,
       playMusicInfo,
     }
   },

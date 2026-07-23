@@ -20,6 +20,7 @@ import { getRandom } from '@renderer/utils/index'
 import { addListMusics, removeListMusics } from '@renderer/store/list/action'
 import { loveList } from '@renderer/store/list/state'
 import { addDislikeInfo } from '@renderer/core/dislikeList'
+import { createDownloadTasks } from '@renderer/store/download/action'
 // import { checkMusicFileAvailable } from '@renderer/utils/music'
 
 let gettingUrlId = ''
@@ -208,6 +209,10 @@ const handlePlay = () => {
   if (appSetting['player.togglePlayMethod'] == 'random' && !playMusicInfo.isTempPlay) addPlayedList({ ...(playMusicInfo as LX.Player.PlayMusicInfo) })
 
   setMusicUrl(musicInfo)
+
+  if (appSetting['download.enable'] && appSetting['download.isDownloadOnPlay'] && !('progress' in musicInfo) && musicInfo.source != 'local') {
+    void createDownloadTasks([musicInfo], appSetting['player.playQuality'], playMusicInfo.listId ?? undefined)
+  }
 
   void getPicPath({ musicInfo, listId: playMusicInfo.listId }).then((url: string) => {
     if (musicInfo.id != playMusicInfo.musicInfo?.id || url == _musicInfo.pic) return

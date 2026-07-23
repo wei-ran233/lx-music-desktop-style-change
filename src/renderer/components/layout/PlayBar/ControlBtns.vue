@@ -1,6 +1,7 @@
 <template>
   <div :class="$style.controlBtn">
     <!-- <common-volume-bar /> -->
+    <common-play-directory-popover />
     <button :class="$style.titleBtn" :aria-label="$t('player__add_music_to')" @click="addMusicTo">
       <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" width="90%" viewBox="0 0 512 512" space="preserve">
         <use xlink:href="#icon-add-2" />

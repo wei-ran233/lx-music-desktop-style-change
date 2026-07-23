@@ -341,11 +341,15 @@ const checkStartTask = async() => {
  */
 const filterTask = (list: LX.Download.ListItem[]) => {
   const set = new Set<string>()
-  for (const item of downloadList) set.add(item.id)
+  for (const item of downloadList) {
+    set.add(item.id)
+    if (item.metadata?.musicInfo?.id) set.add(item.metadata.musicInfo.id)
+  }
   return list.filter(item => {
-    if (set.has(item.id)) return false
+    if (set.has(item.id) || (item.metadata?.musicInfo?.id && set.has(item.metadata.musicInfo.id))) return false
     markRaw(item.metadata)
     set.add(item.id)
+    if (item.metadata?.musicInfo?.id) set.add(item.metadata.musicInfo.id)
     return true
   })
 }
@@ -356,6 +360,7 @@ const filterTask = (list: LX.Download.ListItem[]) => {
  */
 export const createDownloadTasks = async(list: LX.Music.MusicInfoOnline[], quality: LX.Quality, listId?: string) => {
   if (!list.length) return
+  await getDownloadList()
   const tasks = filterTask(await window.lx.worker.download.createDownloadTasks(list, quality,
     appSetting['download.fileName'],
     toRaw(qualityList.value), listId),

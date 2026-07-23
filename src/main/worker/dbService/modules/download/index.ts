@@ -69,6 +69,10 @@ export const getDownloadList = (): LX.Download.ListItem[] => {
  */
 export const downloadInfoSave = (downloadInfos: LX.Download.ListItem[], addMusicLocationType: LX.AddMusicLocationType) => {
   if (!list) initDownloadList()
+  const existIds = new Set(list.map(i => i.id))
+  downloadInfos = downloadInfos.filter(info => !existIds.has(info.id))
+  if (!downloadInfos.length) return
+
   if (addMusicLocationType == 'top') {
     let newList = [...list]
     arrUnshift(newList, downloadInfos)

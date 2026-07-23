@@ -3,7 +3,7 @@
     <div :class="$style.playCard">
       <h3>🎵 快捷一键点歌</h3>
       <p>无需繁琐搜索，输入歌曲名称或演唱者，AI 将自动匹配最高品质音源并推入当前播放列表。</p>
-      
+
       <div :class="$style.inputGroup">
         <input
           type="text"

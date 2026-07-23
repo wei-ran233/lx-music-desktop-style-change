@@ -19,6 +19,13 @@ import {
 } from './local'
 
 
+import { downloadList } from '@renderer/store/download/state'
+import { buildSavePath } from '@renderer/store/download/utils'
+import { getDownloadFilePath, getLocalFilePath } from '@renderer/utils/music'
+import { encodePath } from '@common/utils/common'
+import { allMusicList } from '@renderer/store/list/state'
+import { LIST_IDS } from '@common/constants'
+
 export const getMusicUrl = async({
   musicInfo,
   quality,
@@ -37,6 +44,22 @@ export const getMusicUrl = async({
   } else if (musicInfo.source == 'local') {
     return getLocalMusicUrl({ musicInfo, isRefresh, onToggleSource, allowToggleSource })
   } else {
+    if (!isRefresh) {
+      const downloadedItem = downloadList.find(d => d.metadata.musicInfo.id === musicInfo.id && d.isComplate)
+      if (downloadedItem) {
+        const localPath = await getDownloadFilePath(downloadedItem, buildSavePath(downloadedItem))
+        if (localPath) return encodePath(localPath)
+      }
+
+      const localMusicList = allMusicList.get(LIST_IDS.LOCAL)
+      if (localMusicList) {
+        const localItem = localMusicList.find(l => l.name === musicInfo.name && l.singer === musicInfo.singer)
+        if (localItem) {
+          const localPath = await getLocalFilePath(localItem as LX.Music.MusicInfoLocal)
+          if (localPath) return encodePath(localPath)
+        }
+      }
+    }
     return getOnlineMusicUrl({ musicInfo, isRefresh, quality, onToggleSource, allowToggleSource })
   }
 }

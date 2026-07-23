@@ -52,6 +52,7 @@ export default ({ props, onLoadedList }) => {
   const playerInfo = computed(() => ({
     isPlayList: playMusicInfo.listId == props.listId,
     playIndex: playInfo.playIndex,
+    playMusicId: playMusicInfo.musicInfo?.id,
   }))
 
   const setSelectedIndex = index => {

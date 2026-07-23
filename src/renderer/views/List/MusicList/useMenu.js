@@ -103,11 +103,11 @@ export default ({
     ]
   })
 
-  const showMenu = (event, musicInfo) => {
+  const showMenu = (event, musicInfo, listId) => {
     itemMenuControl.sourceDetail = !!musicSdk[musicInfo.source]?.getMusicDetailPageUrl
     // itemMenuControl.play =
     //   itemMenuControl.playLater =
-    itemMenuControl.download = assertApiSupport(musicInfo.source) && musicInfo.source != 'local'
+    itemMenuControl.download = assertApiSupport(musicInfo.source) && musicInfo.source != 'local' && listId != 'local'
 
     itemMenuControl.dislike = !hasDislike(musicInfo)
 

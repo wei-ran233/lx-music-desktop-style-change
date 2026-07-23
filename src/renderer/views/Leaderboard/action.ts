@@ -7,6 +7,8 @@ import { playList } from '@renderer/core/player/action'
 import { LIST_IDS } from '@common/constants'
 import { toMD5 } from '@renderer/utils'
 
+import { updateListMeta } from '@renderer/store/list/listMeta'
+
 const getListId = (id: string) => `board__${id}`
 
 export const addSongListDetail = async(id: string, name: string, source: LX.OnlineSource) => {
@@ -26,12 +28,28 @@ export const addSongListDetail = async(id: string, name: string, source: LX.Onli
   }
 
   const list = await getListDetailAll(id)
+  const userListId = `${source}_${toMD5(listId)}`
   await createUserList({
     name,
-    id: `${source}_${toMD5(listId)}`,
+    id: userListId,
     list,
     source,
     sourceListId: listId,
+  })
+
+  const sourceNameMap: Record<string, string> = {
+    kw: '酷我',
+    kg: '酷狗',
+    tx: 'QQ',
+    wy: '网易',
+    mg: '咪咕',
+  }
+  const sourceLabel = sourceNameMap[source] || source.toUpperCase()
+
+  updateListMeta(userListId, {
+    subtitle: `${sourceLabel} 排行榜`,
+    tags: [sourceLabel, '排行榜'],
+    customPic: list.length ? (list[0].meta?.picUrl ?? '') : '',
   })
 }
 

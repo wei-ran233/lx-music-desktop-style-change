@@ -9,7 +9,8 @@ export const checkDownloadFileAvailable = async(musicInfo: LX.Download.ListItem,
 }
 
 export const checkLocalFileAvailable = async(musicInfo: LX.Music.MusicInfoLocal): Promise<boolean> => {
-  return checkPath(musicInfo.meta.filePath)
+  const filePath = musicInfo.meta?.filePath || musicInfo.id || (musicInfo as any).filePath || ''
+  return checkPath(filePath)
 }
 
 /**
@@ -35,7 +36,8 @@ export const getDownloadFilePath = async(musicInfo: LX.Download.ListItem, savePa
 }
 
 export const getLocalFilePath = async(musicInfo: LX.Music.MusicInfoLocal): Promise<string> => {
-  return (await checkPath(musicInfo.meta.filePath)) ? musicInfo.meta.filePath : ''
+  const filePath = musicInfo.meta?.filePath || musicInfo.id || (musicInfo as any).filePath || ''
+  return (await checkPath(filePath)) ? filePath : ''
 }
 
 

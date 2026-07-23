@@ -84,6 +84,13 @@ export const setTempList = async(id: string, list: LX.Music.MusicInfoOnline[]) =
   })
 }
 
+export const setListMusics = async(id: string, musicInfos: LX.Music.MusicInfo[]) => {
+  return overwriteListMusics({
+    listId: id,
+    musicInfos: toRaw(musicInfos),
+  })
+}
+
 export {
   addListMusicsAction,
   moveListMusicsAction,

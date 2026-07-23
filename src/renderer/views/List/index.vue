@@ -6,6 +6,8 @@
 </template>
 
 <script>
+import { watch, nextTick } from '@common/utils/vueTools'
+import { playMusicInfo } from '@renderer/store/player/state'
 import { getListPrevSelectId } from '@renderer/utils/data'
 
 import MyList from './MyList/index.vue'
@@ -28,13 +30,9 @@ export default {
     } else next()
   },
   beforeRouteUpdate(to, from) {
-    // console.log(to, from)
     if (to.query.updated) return
     let id = to.query.id
     if (id == null) return
-    // if (!getList(id)) {
-    //   id = defaultList.id
-    // }
     this.listId = id
     const scrollIndex = to.query.scrollIndex
     const isAnimation = from.query.id == to.query.id
@@ -55,6 +53,27 @@ export default {
   },
   created() {
     this.listId = this.$route.query.id
+  },
+  mounted() {
+    this.unwatchPlayListId = watch(
+      () => playMusicInfo.listId,
+      (newListId) => {
+        if (newListId && newListId !== this.listId) {
+          void nextTick(() => {
+            if (newListId !== this.listId) {
+              this.listId = newListId
+              this.$router.replace({
+                path: '/list',
+                query: { id: newListId },
+              }).catch(_ => _)
+            }
+          })
+        }
+      },
+    )
+  },
+  beforeUnmount() {
+    if (this.unwatchPlayListId) this.unwatchPlayListId()
   },
 }
 </script>

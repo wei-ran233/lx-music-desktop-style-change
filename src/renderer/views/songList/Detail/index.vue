@@ -19,7 +19,7 @@
         <base-btn
           :class="$style.headerRightBtn"
           :disabled="!!listDetailInfo.noItemLabel"
-          @click="addSongListDetail(listDetailInfo.id, listDetailInfo.source, listDetailInfo.info.name)"
+          @click="addSongListDetail(listDetailInfo.id, listDetailInfo.source, listDetailInfo.info.name, listDetailInfo.info.desc, picUrl || listDetailInfo.info.img)"
         >
           {{ $t('list__collect') }}
         </base-btn>

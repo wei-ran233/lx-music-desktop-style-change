@@ -186,7 +186,7 @@ const handleRestorePlay = async(restorePlayInfo: LX.Player.SavedPlayInfo) => {
 
 
 // 处理音乐播放
-const handlePlay = () => {
+export const handlePlay = () => {
   window.lx.isPlayedStop &&= false
 
   resetRandomNextMusicInfo()

@@ -18,19 +18,14 @@
     <ul ref="dom_lists_list" class="scroll" :class="[$style.listsContent, { [$style.sortable]: isModDown }]">
       <li
         class="default-list" :class="[$style.listsItem, {[$style.active]: defaultList.id == listId}, {[$style.clicked]: rightClickItemIndex == -2}, {[$style.fetching]: fetchingListStatus[defaultList.id]}]"
-        :aria-label="$t(defaultList.name)" :aria-selected="defaultList.id == listId"
+        :aria-label="'当前目录'" :aria-selected="defaultList.id == listId"
         @contextmenu="handleListsItemRigthClick($event, -2)" @click="handleListToggle(defaultList.id)"
       >
-        <!-- <div v-if="defaultList.id == listId" :class="$style.activeIcon">
-          <svg version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" height="40%" viewBox="0 0 451.846 451.847" space="preserve">
-            <use xlink:href="#icon-right" />
-          </svg>
-        </div> -->
         <span :class="$style.listsLabel">
           <transition name="list-active">
             <svg-icon v-if="defaultList.id == listId" name="angle-right-solid" :class="$style.activeIcon" />
           </transition>
-          {{ $t(defaultList.name) }}
+          当前目录
         </span>
       </li>
       <li

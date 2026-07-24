@@ -67,7 +67,7 @@ import { playInfo, playMusicInfo } from '@renderer/store/player/state'
 import { getList } from '@renderer/store/player/action'
 import { playList } from '@renderer/core/player/action'
 import { defaultList, loveList, localList, tempList, userLists } from '@renderer/store/list/state'
-import { removeListMusics, clearListMusics } from '@renderer/store/list/action'
+import { removeListMusics, clearListMusics, getListMusics } from '@renderer/store/list/action'
 import { removeDownloadTasks } from '@renderer/store/download/action'
 import { downloadList } from '@renderer/store/download/state'
 import { LIST_IDS } from '@common/constants'
@@ -83,18 +83,27 @@ const currentListId = computed(() => {
 
 const list = ref<Array<LX.Music.MusicInfo | LX.Download.ListItem>>([])
 
-const updateList = () => {
-  list.value = [...getList(currentListId.value)]
+const updateList = async() => {
+  if (currentListId.value === LIST_IDS.DOWNLOAD) {
+    list.value = [...downloadList]
+    return
+  }
+  let res = getList(currentListId.value)
+  if (!res.length && currentListId.value) {
+    res = await getListMusics(currentListId.value)
+  }
+  list.value = [...res]
 }
 
 watch(currentListId, () => {
-  updateList()
+  void updateList()
 }, { immediate: true })
 
 onMounted(() => {
+  void updateList()
   const handleListUpdate = (ids: string[]) => {
     if (ids.includes(currentListId.value) || currentListId.value === LIST_IDS.DOWNLOAD) {
-      updateList()
+      void updateList()
     }
   }
   window.app_event.on('myListUpdate', handleListUpdate)

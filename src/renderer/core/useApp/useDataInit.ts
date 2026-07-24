@@ -11,6 +11,8 @@ import { appSetting } from '@renderer/store/setting'
 import { playMusicInfo } from '@renderer/store/player/state'
 import { initDislikeInfo, registerRemoteDislikeAction } from '@renderer/core/dislikeList'
 
+import { LIST_IDS } from '@common/constants'
+
 const initPrevPlayInfo = async() => {
   const info = await getPlayInfo()
   window.lx.restorePlayInfo = null
@@ -51,6 +53,7 @@ export default () => {
       window.app_event.myListUpdate(ids)
     })
     window.lxData.userLists = await getUserLists() // 获取用户列表
+    await getListMusics(LIST_IDS.DEFAULT).catch(err => { log.error(err) }) // 首次启动预加载默认列表
     unregisterDislikeEvent = registerRemoteDislikeAction()
     await initDislikeInfo() // 获取不喜欢列表
     await initPrevPlayInfo().catch(err => {

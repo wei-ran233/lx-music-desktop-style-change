@@ -59,6 +59,12 @@
    - **MediaSession 崩溃修复**：修复因极速切歌引发的 MediaSession `position > duration` 越界崩溃。
    - **UI 优化**：屏蔽本地音乐列表的误触下载按钮，修复列表相关渲染错误。
 
+### 📦 发布文件与适配系统说明
+
+- **安装包版**：`LX-Music-桌面版-v2.12.3-beta.9-Windows-x64-安装包版.exe`（常规安装文件，双击后按提示进行安装）。
+- **免安装版**：`LX-Music-桌面版-v2.12.3-beta.9-Windows-x64-免安装绿色版.zip`（便携解压版，解压后双击 `lx-music-desktop.exe` 即可运行）。
+- **适配系统**：支持 Windows 7 / Windows 8 / Windows 10 / Windows 11 及以上 64 位 (x64) 操作系统。
+
 ### ⚠️ 功能兼容性状态说明
 
 - **AI 电台 (AI DJ)**：正在测试中。
@@ -69,6 +75,13 @@
 
 ## 用户界面
 
+### 1. 我的列表页面
+<p><img width="100%" src="./doc/images/my_list.png" alt="我的列表页面"></p>
+
+### 2. AI电台页面
+<p><img width="100%" src="./doc/images/ai_dj.png" alt="AI电台页面"></p>
+
+### 3. 主界面预览
 <p><img width="100%" src="./doc/images/app.png" alt="lx-music desktop UI"></p>
 
 ## 贡献代码

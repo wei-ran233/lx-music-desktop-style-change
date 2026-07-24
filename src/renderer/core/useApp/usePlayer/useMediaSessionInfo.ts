@@ -50,10 +50,10 @@ export default () => {
     playbackRate?: number
   } = {}) => {
     try {
-      let duration = state.duration ?? getDuration() || 0
-      let position = state.position ?? getCurrentTime() || 0
-      let playbackRate = state.playbackRate ?? getPlaybackRate() || 1
-      
+      let duration = (state.duration ?? getDuration()) || 0
+      let position = (state.position ?? getCurrentTime()) || 0
+      let playbackRate = (state.playbackRate ?? getPlaybackRate()) || 1
+
       if (duration < 0) duration = 0
       if (position < 0) position = 0
       if (position > duration) position = duration

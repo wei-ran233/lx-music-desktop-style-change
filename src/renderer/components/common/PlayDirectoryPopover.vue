@@ -30,11 +30,11 @@
           <div
             v-for="(item, index) in list"
             :key="item.id || index"
-            :class="[$style.listItem, { [$style.active]: item.id === currentMusicId }]"
+            :class="[$style.listItem, { [$style.active]: getItemMusicId(item) == currentMusicId }]"
             @click="handlePlaySong(index)"
           >
             <div :class="$style.indexCol">
-              <svg v-if="item.id === currentMusicId" version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 0 291.063 291.064" :class="$style.playingIcon">
+              <svg v-if="getItemMusicId(item) == currentMusicId" version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" viewBox="0 0 291.063 291.064" :class="$style.playingIcon">
                 <use xlink:href="#icon-sound" />
               </svg>
               <span v-else>{{ index + 1 }}</span>
@@ -62,7 +62,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, nextTick, useCssModule } from '@common/utils/vueTools'
+import { computed, ref, watch, onMounted, onBeforeUnmount, nextTick, useCssModule } from '@common/utils/vueTools'
 import { playInfo, playMusicInfo } from '@renderer/store/player/state'
 import { getList } from '@renderer/store/player/action'
 import { playList } from '@renderer/core/player/action'
@@ -77,16 +77,41 @@ const $style = useCssModule()
 const listContainerRef = ref<HTMLElement | null>(null)
 
 const currentListId = computed(() => {
+  if (playMusicInfo.isTempPlay) return LIST_IDS.TEMP
   return playInfo.playerListId ?? playMusicInfo.listId ?? LIST_IDS.DEFAULT
 })
 
-const list = computed(() => {
-  return getList(currentListId.value)
+const list = ref<Array<LX.Music.MusicInfo | LX.Download.ListItem>>([])
+
+const updateList = () => {
+  list.value = [...getList(currentListId.value)]
+}
+
+watch(currentListId, () => {
+  updateList()
+}, { immediate: true })
+
+onMounted(() => {
+  const handleListUpdate = (ids: string[]) => {
+    if (ids.includes(currentListId.value) || currentListId.value === LIST_IDS.DOWNLOAD) {
+      updateList()
+    }
+  }
+  window.app_event.on('myListUpdate', handleListUpdate)
+  onBeforeUnmount(() => {
+    window.app_event.off('myListUpdate', handleListUpdate)
+  })
 })
 
 const currentMusicId = computed(() => {
   return playMusicInfo.musicInfo?.id
 })
+
+const getItemMusicId = (item: any) => {
+  if (!item) return ''
+  if ('progress' in item) return item.metadata.musicInfo.id
+  return item.id
+}
 
 const listName = computed(() => {
   const id = currentListId.value
@@ -112,7 +137,8 @@ const getSingerName = (item: any) => {
 
 const getDurationStr = (item: any) => {
   const interval = 'progress' in item ? item.metadata.musicInfo.interval : item.interval
-  return interval ? formatPlayTime(interval) : ''
+  if (!interval) return '--/--'
+  return typeof interval === 'number' ? formatPlayTime(interval) : interval
 }
 
 const handlePlaySong = (index: number) => {
@@ -122,10 +148,15 @@ const handlePlaySong = (index: number) => {
 }
 
 const handleRemoveSong = (item: any) => {
+  const musicId = getItemMusicId(item)
   if (currentListId.value === LIST_IDS.DOWNLOAD) {
     void removeDownloadTasks([item.id])
   } else {
-    void removeListMusics({ listId: currentListId.value, ids: [item.id] })
+    void removeListMusics({ listId: currentListId.value, ids: [musicId] })
+  }
+  const idx = list.value.findIndex(i => getItemMusicId(i) === musicId)
+  if (idx > -1) {
+    list.value.splice(idx, 1)
   }
 }
 
@@ -135,6 +166,7 @@ const handleClear = () => {
   } else {
     void clearListMusics([currentListId.value])
   }
+  list.value = []
 }
 
 const handleLocateCurrent = () => {

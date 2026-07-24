@@ -57,6 +57,36 @@ export default ({ props, selectedList, list, removeAllSelect }) => {
     }
   }
 
+  const handlePlayAll = (index = 0) => {
+    if (!list.value.length) return
+    const targetMusic = list.value[index] || list.value[0]
+    if (!targetMusic) return
+
+    const isSwitch = appSetting['player.isSwitchPlayListOnPlay']
+    const isAutoClean = appSetting['player.isAutoCleanPlayedList']
+
+    if (isAutoClean && playMusicInfo.listId === props.listId) {
+      clearPlayedList()
+    }
+
+    if (isSwitch) {
+      playList(props.listId, index)
+    } else {
+      if (props.listId === LIST_IDS.DEFAULT) {
+        playList(LIST_IDS.DEFAULT, index)
+      } else {
+        const prevListId = playInfo.playerListId
+        setPlayListId(LIST_IDS.DEFAULT)
+        setPlayMusicInfo(LIST_IDS.DEFAULT, targetMusic)
+        if (appSetting['player.isAutoCleanPlayedList'] || prevListId != LIST_IDS.DEFAULT) clearPlayedList()
+        clearTempPlayeList()
+        handlePlay()
+
+        setListMusics(LIST_IDS.DEFAULT, list.value.map(toRaw)).catch((err) => { console.error('setListMusics error:', err) })
+      }
+    }
+  }
+
   const handlePlayMusicLater = (index, single) => {
     if (selectedList.value.length && !single) {
       addTempPlayList(selectedList.value.map(s => ({ listId: props.listId, musicInfo: s })))
@@ -82,6 +112,7 @@ export default ({ props, selectedList, list, removeAllSelect }) => {
 
   return {
     handlePlayMusic,
+    handlePlayAll,
     handlePlayMusicLater,
     doubleClickPlay,
   }

@@ -1,5 +1,5 @@
 <template lang="pug">
-material-modal(:show="versionInfo.showModal" max-width="60%" @close="handleClose")
+material-modal(:show="false" max-width="60%" @close="handleClose")
   main(v-if="versionInfo.isLatest" :class="$style.main")
     h2 🎉 已是最新版本 🎉
     div.scroll.select(:class="$style.info")

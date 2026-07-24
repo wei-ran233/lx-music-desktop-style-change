@@ -26,9 +26,14 @@ export const searchCities = async(keyword: string): Promise<CitySearchResult[]> 
   if (!trimKw) return []
 
   const apiKey = djSettings.weatherApiKey
+  const isCustomHost = !!djSettings.weatherApiHost?.trim()
+  const apiHost = djSettings.weatherApiHost?.trim() || 'geoapi.qweather.com'
+  const finalHost = apiHost.startsWith('http') ? apiHost : `https://${apiHost}`
+  const geoPath = isCustomHost ? '/geo/v2/city/lookup' : '/v2/city/lookup'
+
   if (apiKey) {
     try {
-      const url = `https://geoapi.qweather.com/v2/city/lookup?location=${encodeURIComponent(trimKw)}&key=${apiKey}&range=cn&number=10`
+      const url = `${finalHost}${geoPath}?location=${encodeURIComponent(trimKw)}&key=${apiKey}&range=cn&number=10`
       const res = await fetch(url)
       const data = await res.json()
 
@@ -76,12 +81,19 @@ export const searchCities = async(keyword: string): Promise<CitySearchResult[]> 
 export const fetchCurrentWeather = async(): Promise<WeatherData> => {
   const city = djSettings.city || '成都'
   const apiKey = djSettings.weatherApiKey
+  const isCustomHost = !!djSettings.weatherApiHost?.trim()
+  const geoHost = djSettings.weatherApiHost?.trim() || 'geoapi.qweather.com'
+  const weatherHost = djSettings.weatherApiHost?.trim() || 'devapi.qweather.com'
+
+  const geoUrl = geoHost.startsWith('http') ? geoHost : `https://${geoHost}`
+  const weatherUrl = weatherHost.startsWith('http') ? weatherHost : `https://${weatherHost}`
+  const geoPath = isCustomHost ? '/geo/v2/city/lookup' : '/v2/city/lookup'
 
   // 1. 如果配置了和风天气 API Key，调用官方接口
   if (apiKey) {
     try {
       const geoRes = await fetch(
-        `https://geoapi.qweather.com/v2/city/lookup?location=${encodeURIComponent(city)}&key=${apiKey}`,
+        `${geoUrl}${geoPath}?location=${encodeURIComponent(city)}&key=${apiKey}`,
       )
       const geoData = await geoRes.json()
 
@@ -90,7 +102,7 @@ export const fetchCurrentWeather = async(): Promise<WeatherData> => {
         const cityName = geoData.location[0].name || city
 
         const weatherRes = await fetch(
-          `https://devapi.qweather.com/v7/weather/now?location=${locationId}&key=${apiKey}`,
+          `${weatherUrl}/v7/weather/now?location=${locationId}&key=${apiKey}`,
         )
         const weatherData = await weatherRes.json()
 

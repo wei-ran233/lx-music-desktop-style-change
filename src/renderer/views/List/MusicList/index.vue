@@ -582,6 +582,7 @@ export default {
 
     const {
       handlePlayMusic,
+      handlePlayAll,
       handlePlayMusicLater,
       doubleClickPlay,
     } = usePlay({ props, selectedList, list: displayList, removeAllSelect })
@@ -875,12 +876,6 @@ export default {
       }
       return ''
     })
-
-    const handlePlayAll = () => {
-      if (displayList.value.length) {
-        handlePlayMusic(0)
-      }
-    }
 
     return {
       props,

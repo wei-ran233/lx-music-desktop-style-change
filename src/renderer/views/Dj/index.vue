@@ -148,10 +148,10 @@
               <input
                 v-model="inputMessage"
                 type="text"
-                :placeholder="activeFeatureTag ? activeFeatureTag.placeholder : '有问题，尽管问...'"
+                :placeholder="activeFeatureTag ? activeFeatureTag.placeholder : '输入想听的歌、歌手、心情或任何问题...'"
                 :class="$style.chatInput"
                 :disabled="isGenerating"
-                @keyup.enter="sendMessage"
+                @keyup.enter="handleSendClick"
               />
 
               <div :class="$style.plusMenuContainer">
@@ -170,7 +170,7 @@
                 </transition>
               </div>
 
-              <button :class="$style.sendCircleBtn" :disabled="isGenerating" @click="sendMessage">
+              <button :class="$style.sendCircleBtn" :disabled="isGenerating" @click="handleSendClick">
                 {{ isGenerating ? '⌛' : '↑' }}
               </button>
             </div>
@@ -180,12 +180,13 @@
                 v-for="(chipText, idx) in suggestionChips"
                 :key="idx"
                 :class="$style.chip"
+                :title="chipText"
                 @click="applySuggestion(chipText)"
               >
                 {{ chipText }}
               </button>
 
-              <button :class="[$style.chip, $style.refreshChip]" title="刷新推荐选项" @click="refreshSuggestions">
+              <button :class="[$style.chip, $style.refreshChip]" title="刷新推荐选项" @click="handleRefreshClick">
                 🔄 换一换
               </button>
             </div>
@@ -207,10 +208,38 @@
             <div :class="$style.bubble">
               <p>{{ msg.text }}</p>
 
-              <!-- 🎵 音乐推荐卡片 (黑胶唱片旋转 Logo 设计) -->
-              <div v-if="msg.musicCard" :class="$style.musicCard">
+              <!-- 🎵 音乐推荐卡片列表 (支持 1 到多首动态推荐) -->
+              <div v-if="msg.musicCards && msg.musicCards.length" :class="$style.musicCardList">
+                <div v-for="(card, cardIdx) in msg.musicCards" :key="cardIdx" :class="$style.musicCard">
+                  <div :class="$style.vinylContainer">
+                    <div :class="$style.albumCover">
+                      <img v-if="card.pic || card.meta?.picUrl" :src="card.pic || card.meta?.picUrl" :class="$style.albumCoverImg" />
+                      <span v-else>🎵</span>
+                    </div>
+                    <div :class="[$style.vinylDisc, { [$style.spinning]: isPlayingMusic }]">
+                      <div :class="$style.vinylCenterLabel"></div>
+                    </div>
+                  </div>
+
+                  <div :class="$style.musicMeta">
+                    <div :class="$style.songTitle">{{ card.name }}</div>
+                    <div :class="$style.artist">{{ card.singer }}</div>
+                    <div v-if="card.reason" :class="$style.recommendReason">💡 {{ card.reason }}</div>
+                  </div>
+
+                  <button :class="$style.playBtn" @click="toggleMusicPlay(card)">
+                    ▶ 播放
+                  </button>
+                </div>
+              </div>
+
+              <!-- 兼容旧历史数据单卡片 msg.musicCard -->
+              <div v-else-if="msg.musicCard" :class="$style.musicCard">
                 <div :class="$style.vinylContainer">
-                  <div :class="$style.albumCover">🎵</div>
+                  <div :class="$style.albumCover">
+                    <img v-if="msg.musicCard.pic || msg.musicCard.meta?.picUrl" :src="msg.musicCard.pic || msg.musicCard.meta?.picUrl" :class="$style.albumCoverImg" />
+                    <span v-else>🎵</span>
+                  </div>
                   <div :class="[$style.vinylDisc, { [$style.spinning]: isPlayingMusic }]">
                     <div :class="$style.vinylCenterLabel"></div>
                   </div>
@@ -219,10 +248,11 @@
                 <div :class="$style.musicMeta">
                   <div :class="$style.songTitle">{{ msg.musicCard.name }}</div>
                   <div :class="$style.artist">{{ msg.musicCard.singer }}</div>
+                  <div v-if="msg.musicCard.reason" :class="$style.recommendReason">💡 {{ msg.musicCard.reason }}</div>
                 </div>
 
                 <button :class="$style.playBtn" @click="toggleMusicPlay(msg.musicCard)">
-                  {{ isPlayingMusic ? '⏸ 暂停' : '▶ 播放' }}
+                  ▶ 播放
                 </button>
               </div>
 
@@ -245,10 +275,10 @@
           <input
             v-model="inputMessage"
             type="text"
-            :placeholder="activeFeatureTag ? activeFeatureTag.placeholder : '有问题，尽管问...'"
+            :placeholder="activeFeatureTag ? activeFeatureTag.placeholder : '输入想听的歌、歌手、心情或任何问题...'"
             :class="$style.chatInput"
             :disabled="isGenerating"
-            @keyup.enter="sendMessage"
+            @keyup.enter="handleSendClick"
           />
 
           <div :class="$style.plusMenuContainer">
@@ -267,7 +297,7 @@
             </transition>
           </div>
 
-          <button :class="$style.sendCircleBtn" :disabled="isGenerating" @click="sendMessage">
+          <button :class="$style.sendCircleBtn" :disabled="isGenerating" @click="handleSendClick">
             {{ isGenerating ? '⌛' : '↑' }}
           </button>
         </div>
@@ -280,15 +310,20 @@
 </template>
 
 <script>
-import { ref, computed, onMounted } from '@common/utils/vueTools'
+import { ref, computed, onMounted, onUnmounted } from '@common/utils/vueTools'
 import DjSettingModal from './components/DjSettingModal.vue'
-import { djSettings } from '@renderer/store/dj'
-import { sendLlmStreamMessage } from '@renderer/utils/dj/llmService'
+import { djSettings, djHistoryList, chatHistoryList, recommendHistoryList, saveHistory } from '@renderer/store/dj'
+import { sendLlmStreamMessage, fetchDynamicSuggestionsFromLLM } from '@renderer/utils/dj/llmService'
 import { synthesizeSpeech } from '@renderer/utils/dj/ttsService'
-import { playDjSpeech } from '@renderer/core/player/djAudio'
+import { playDjSpeech, stopDjSpeech, registerDjSongEndListener, unregisterDjSongEndListener } from '@renderer/core/player/djAudio'
 import { fetchCurrentWeather } from '@renderer/utils/dj/weatherService'
-import { analyzeUserProfile } from '@renderer/utils/dj/userProfile'
+import { analyzeUserProfile, recordPlayedSong, generateAiProfileSummary } from '@renderer/utils/dj/userProfile'
 import musicSdk from '@renderer/utils/musicSdk'
+import { toNewMusicInfo } from '@renderer/utils'
+import { getPicPath } from '@renderer/core/music'
+import { addTempPlayList } from '@renderer/store/player/action'
+import { playNext } from '@renderer/core/player'
+import { LIST_IDS } from '@common/constants'
 
 export default {
   name: 'DjChatGPTIntegratedView',
@@ -317,51 +352,10 @@ export default {
     const showSettingModal = ref(false)
     const activeFeatureTag = ref(null)
 
-    // DJ 与 聊天历史列表
-    const djHistory = ref([
-      {
-        id: 'dj-1',
-        type: 'history',
-        mode: 'dj',
-        title: '周五雨夜晚安调频',
-        date: '21:30',
-        messages: [
-          { sender: 'user', text: '播放适合雨夜放空的爵士音乐' },
-          {
-            sender: 'ai',
-            text: '🎧 欢迎收听周五雨夜特别调频。窗外小雨淅淅沥沥，为您播送一首 Bill Evans 的经典爵士《Peace Piece》：',
-            musicCard: { name: 'Peace Piece', singer: 'Bill Evans' },
-          },
-        ],
-      },
-    ])
-
-    const chatHistory = ref([
-      {
-        id: 'chat-1',
-        type: 'history',
-        mode: 'chat',
-        title: '周杰伦经典歌曲交流与推荐',
-        date: '14:20',
-        messages: [
-          { sender: 'user', text: '想听周杰伦比较有氛围感、适合现在听的歌' },
-          {
-            sender: 'ai',
-            text: '💬 为您推荐周杰伦的经典名曲《晴天》。这首歌吉他前奏一出来就充满了青春与怀旧的氛围。',
-            musicCard: { name: '晴天', singer: '周杰伦' },
-          },
-        ],
-      },
-    ])
-
-    const recommendHistory = ref([
-      { id: 'rec-1', type: 'recommend', mode: 'dj', title: '晴天', singer: '周杰伦', date: '08:30' },
-    ])
-
     const currentHistoryList = computed(() => {
-      if (historyCategory.value === 'dj') return djHistory.value
-      if (historyCategory.value === 'chat') return chatHistory.value
-      return recommendHistory.value
+      if (historyCategory.value === 'dj') return djHistoryList
+      if (historyCategory.value === 'chat') return chatHistoryList
+      return recommendHistoryList
     })
 
     const messageList = ref([])
@@ -409,42 +403,28 @@ export default {
     }
 
     const generateDynamicSuggestions = () => {
-      const hours = new Date().getHours()
-      const isNight = hours >= 19 || hours < 6
-
-      if (mode.value === 'dj') {
-        if (isNight) {
-          suggestionChips.value = [
-            '🌙 深夜感性民谣',
-            '🎧 爵士酒吧特调',
-            '🌧️ 舒缓助眠钢琴曲',
-            '🔥 爆款电音摇滚',
-          ]
-        } else {
-          suggestionChips.value = [
-            '💡 推荐周杰伦快歌',
-            '☕ 阳光午后 Bossa Nova',
-            '🎧 全网热搜流行榜',
-            '🔍 适合工作的轻音乐',
-          ]
-        }
-      } else {
-        suggestionChips.value = [
-          `🌤️ 聊聊${city.value}今天的天气`,
-          '☕ 推荐几首适合放松的歌',
-          '💡 你有什么音乐励志金句吗？',
-          '🔍 帮我搜一首热血动漫主题曲',
-        ]
-      }
+      if (messageList.value.length > 0) return
+      refreshSuggestions().catch(err => { console.error(err) })
     }
 
-    const refreshSuggestions = () => {
-      const alternativeChips = [
-        ['🔥 抖音热歌榜', '🎸 经典华语摇滚', '🎹 治愈系纯音乐', '🎧 城市 CityPop'],
-        ['☕ 咖啡馆特调爵士', '🌅 晨间唤醒神曲', '🎧 80年代复古港台', '💡 聊聊最近上映的电影原声'],
-      ]
-      const randomIndex = Math.floor(Math.random() * alternativeChips.length)
-      suggestionChips.value = alternativeChips[randomIndex]
+    const refreshSuggestions = async() => {
+      if (messageList.value.length > 0) return
+      if (isGenerating.value) return
+
+      suggestionChips.value = ['正在思考推荐...']
+      try {
+        const res = await fetchDynamicSuggestionsFromLLM(currentWeather.value, mode.value)
+        if (res && res.length >= 4) {
+          suggestionChips.value = res
+        } else {
+          throw new Error('Fallback')
+        }
+      } catch (err) {
+        const fallback = mode.value === 'dj'
+          ? ['🔥 抖音热歌榜', '🎸 经典华语摇滚', '🎹 治愈系纯音乐', '🎧 城市 CityPop']
+          : ['☕ 推荐几首适合放松的歌', '💡 聊聊最近上映的电影', '🔍 帮我搜一首励志歌曲', '🌤️ 聊聊今天的天气']
+        suggestionChips.value = fallback
+      }
     }
 
     const updateCurrentTime = () => {
@@ -459,18 +439,106 @@ export default {
       generateDynamicSuggestions()
     }
 
+    const preloadMusicCardCovers = (messages = messageList.value) => {
+      if (!messages?.length) return
+      messages.forEach((msg) => {
+        const cards = msg.musicCards || (msg.musicCard ? [msg.musicCard] : [])
+        cards.forEach((card) => {
+          if (card && (!card.pic && !card.meta?.picUrl)) {
+            const fetchCover = async() => {
+              const songMeta = await executeMusicSearch(`${card.name} ${card.singer || ''}`)
+              if (songMeta?.source) {
+                const coverPic = songMeta.meta?.picUrl ?? songMeta.pic
+                if (coverPic) {
+                  card.pic = coverPic
+                }
+                card.source = songMeta.source
+              }
+            }
+            fetchCover().catch(err => { console.error('加载封面异常:', err) })
+          }
+        })
+      })
+    }
+
+    const saveCurrentSessionToHistory = () => {
+      if (!messageList.value.length) return
+      let firstUserMsg = null
+      for (const m of messageList.value) {
+        if (m.sender === 'user') {
+          firstUserMsg = m
+          break
+        }
+      }
+      let sessionTitle = firstUserMsg ? String(firstUserMsg.text).replace(/^\[.*?\]\s*/, '').trim() : ''
+      if (!sessionTitle) sessionTitle = mode.value === 'dj' ? 'DJ 专属调频' : '知心聊天'
+      sessionTitle = sessionTitle.slice(0, 16)
+
+      const now = new Date()
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+
+      const targetList = mode.value === 'dj' ? djHistoryList : chatHistoryList
+
+      if (!activeHistoryId.value) {
+        activeHistoryId.value = `${mode.value}-${Date.now()}`
+        targetList.unshift({
+          id: activeHistoryId.value,
+          type: 'history',
+          mode: mode.value,
+          title: sessionTitle,
+          date: timeStr,
+          messages: JSON.parse(JSON.stringify(messageList.value)),
+        })
+      } else {
+        const existing = targetList.find(i => i.id === activeHistoryId.value)
+        if (existing) {
+          existing.messages = JSON.parse(JSON.stringify(messageList.value))
+          existing.date = timeStr
+          existing.title = sessionTitle
+        } else {
+          targetList.unshift({
+            id: activeHistoryId.value,
+            type: 'history',
+            mode: mode.value,
+            title: sessionTitle,
+            date: timeStr,
+            messages: JSON.parse(JSON.stringify(messageList.value)),
+          })
+        }
+      }
+      saveHistory()
+    }
+
+    const handleDjSongEndedAutoContinue = () => {
+      if (mode.value !== 'dj' || isGenerating.value) return
+      console.log('DJ 推荐曲目播放完成，触发主动连播过度...')
+      inputMessage.value = '（系统自动点播广播续播指令：请给出一句惬意的过度串词，并结合我的用户画像与当下氛围，继续推荐并播放下一首好听的音乐。）'
+      sendMessage().catch(err => { console.error(err) })
+    }
+
     onMounted(() => {
       updateCurrentTime()
-      void initEnvironment()
+      initEnvironment().catch(err => { console.error(err) })
+      djHistoryList.forEach(item => { preloadMusicCardCovers(item.messages) })
+      chatHistoryList.forEach(item => { preloadMusicCardCovers(item.messages) })
+      preloadMusicCardCovers()
+      registerDjSongEndListener(handleDjSongEndedAutoContinue)
+    })
+
+    onUnmounted(() => {
+      stopDjSpeech()
+      unregisterDjSongEndListener(handleDjSongEndedAutoContinue)
     })
 
     const switchMode = (newMode) => {
+      stopDjSpeech()
       mode.value = newMode
       generateAiGreeting()
       generateDynamicSuggestions()
     }
 
     const startNewChat = () => {
+      stopDjSpeech()
       activeHistoryId.value = ''
       messageList.value = []
       activeFeatureTag.value = null
@@ -488,30 +556,79 @@ export default {
 
       if (item.messages && item.messages.length > 0) {
         messageList.value = JSON.parse(JSON.stringify(item.messages))
+        preloadMusicCardCovers(messageList.value)
       }
     }
 
     const directPlayMusic = (item) => {
       isPlayingMusic.value = true
+      recordPlayedSong(item.title, item.singer)
       console.log('直接在侧边栏触发播放推荐音乐:', item.title)
+      const playTask = async() => {
+        const songMeta = await executeMusicSearch(`${item.title} ${item.singer || ''}`)
+        if (songMeta?.source) {
+          addTempPlayList([{ listId: LIST_IDS.PLAY_LATER, musicInfo: songMeta, isTop: true }])
+          playNext(true).catch(err => { console.error(err) })
+        }
+      }
+      playTask().catch(err => { console.error(err) })
     }
 
     const deleteHistoryItem = (item) => {
       if (item.mode === 'dj') {
-        djHistory.value = djHistory.value.filter(i => i.id !== item.id)
+        const idx = djHistoryList.findIndex(i => i.id === item.id)
+        if (idx > -1) djHistoryList.splice(idx, 1)
       } else if (item.mode === 'chat') {
-        chatHistory.value = chatHistory.value.filter(i => i.id !== item.id)
+        const idx = chatHistoryList.findIndex(i => i.id === item.id)
+        if (idx > -1) chatHistoryList.splice(idx, 1)
       } else {
-        recommendHistory.value = recommendHistory.value.filter(i => i.id !== item.id)
+        const idx = recommendHistoryList.findIndex(i => i.id === item.id)
+        if (idx > -1) recommendHistoryList.splice(idx, 1)
       }
+      saveHistory()
 
       if (activeHistoryId.value === item.id) {
         startNewChat()
       }
     }
 
+    // 将对话生成的推荐音乐自动同步添加至“推荐点播”侧边栏列表
+    const addSongsToRecommendHistory = (songMetas) => {
+      if (!songMetas?.length) return
+      const now = new Date()
+      const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`
+
+      songMetas.forEach((song) => {
+        if (!song?.name) return
+        const songName = song.name
+        const singerName = song.singer || '精选歌手'
+        const existsIndex = recommendHistoryList.findIndex(
+          (item) => item.title === songName && (item.singer === singerName || !song.singer),
+        )
+        if (existsIndex > -1) {
+          recommendHistoryList.splice(existsIndex, 1)
+        }
+
+        recommendHistoryList.unshift({
+          id: `rec-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+          type: 'recommend',
+          mode: mode.value,
+          title: songName,
+          singer: singerName,
+          date: timeStr,
+        })
+      })
+
+      if (recommendHistoryList.length > 50) {
+        recommendHistoryList.splice(50)
+      }
+
+      saveHistory()
+    }
+
     const deleteMessage = (index) => {
       messageList.value.splice(index, 1)
+      saveCurrentSessionToHistory()
     }
 
     const attachFeatureTag = (type) => {
@@ -533,25 +650,27 @@ export default {
 
     const applySuggestion = (text) => {
       inputMessage.value = text
-      void sendMessage()
+      sendMessage().catch(err => { console.error(err) })
     }
 
-    // 智能抽取 AI 文本中提到的真实歌名（优先识别《...》或『...』，避免将打招呼“你好”当作歌名）
-    const extractRecommendedSongName = (aiText, userQuery) => {
-      const match = aiText.match(/《([^》]+)》/) || aiText.match(/『([^』]+)』/)
-      if (match?.[1]) {
-        return match[1].trim()
+    // 动态智能抽取 AI 文本中提到的 1 个或多个真实歌名（识别《...》或『...』）
+    const extractRecommendedSongList = (aiText, userQuery) => {
+      const matches1 = Array.from(aiText.matchAll(/《([^》]+)》/g)).map(m => m[1].trim())
+      const matches2 = Array.from(aiText.matchAll(/『([^』]+)』/g)).map(m => m[1].trim())
+      const names = [...new Set([...matches1, ...matches2])].filter(Boolean)
+
+      if (names.length > 0) {
+        return names
       }
 
       // 判断用户输入是否是常见打招呼/聊天词
       const commonGreetings = ['你好', 'hi', 'hello', '在吗', '哈啰', '早上好', '晚安', '你好呀', '嗨']
       const lowerQuery = userQuery.trim().toLowerCase()
       if (commonGreetings.includes(lowerQuery) || lowerQuery.length <= 2) {
-        // 对于打招呼对话，默认精选好歌
-        return '晴天'
+        return ['晴天']
       }
 
-      return userQuery
+      return [userQuery]
     }
 
     // 搜索并匹配曲目
@@ -560,15 +679,21 @@ export default {
         const results = await musicSdk.searchMusic({ name: kw, limit: 5 })
         if (results && results.length > 0 && results[0].list?.length > 0) {
           const topSong = results[0].list[0]
-          return {
-            name: topSong.name || kw,
-            singer: topSong.singer || '热门歌手',
+          const musicInfo = toNewMusicInfo(topSong)
+          try {
+            const picUrl = await getPicPath({ musicInfo })
+            if (picUrl) {
+              musicInfo.meta.picUrl = picUrl
+            }
+          } catch (picErr) {
+            console.error('获取歌曲封面图片失败:', picErr)
           }
+          return musicInfo
         }
       } catch (e) {
         console.error('搜索音乐库异常:', e)
       }
-      return { name: kw, singer: '推荐音源' }
+      return null
     }
 
     // 真正的 SendMessage LLM SSE 打字机流式回复
@@ -597,26 +722,49 @@ export default {
       messageList.value.push({
         sender: 'ai',
         text: '...',
-        musicCard: null,
+        musicCards: null,
       })
 
-      // 如果未配置 API Key，使用打字机与精准智能推荐
+      // 如果未配置 API Key，使用打字机与精准智能推荐（支持动态 1 到多首推荐）
       if (!djSettings.apiKey) {
         setTimeout(() => {
-          void (async() => {
-            const isGreeting = ['你好', 'hi', 'hello', '在吗', '哈啰', '早上好', '晚安'].includes(rawQuery.toLowerCase())
-            const targetKw = isGreeting ? '晴天' : rawQuery
-            const songMeta = await executeMusicSearch(targetKw)
+          const runFallback = async() => {
+            const lower = rawQuery.toLowerCase()
+            const isGreeting = ['你好', 'hi', 'hello', '在吗', '哈啰', '早上好', '晚安'].includes(lower)
 
-            const aiText = mode.value === 'dj'
-              ? `🎧【${djSettings.city}电台】欢迎收听 AI 音乐调频！结合此时此刻的天气，特别为您播送《${songMeta.name}》：`
-              : `💬 听到关于"${rawQuery}"的倾诉，特别懂你。为您推介这首温暖的《${songMeta.name}》：`
+            let targetKws = []
+            if (isGreeting) {
+              targetKws = ['晴天']
+            } else if (lower.includes('多') || lower.includes('几') || lower.includes('3') || lower.includes('两') || lower.includes('歌单') || lower.includes('榜')) {
+              targetKws = mode.value === 'dj' ? ['晴天', '海阔天空', 'City of Stars'] : ['晴天', '十年', '江南']
+            } else {
+              targetKws = [rawQuery]
+            }
+
+            const songMetas = (await Promise.all(targetKws.map(async kw => executeMusicSearch(kw)))).filter(Boolean)
+
+            let aiText = ''
+            if (songMetas.length > 1) {
+              const namesStr = songMetas.map(s => `《${s.name}》`).join('、')
+              aiText = mode.value === 'dj'
+                ? `🎧【${djSettings.city}电台】为您精心编排特别歌单！结合此时此刻的天气，特别播送 ${namesStr}：`
+                : `💬 听到关于"${rawQuery}"的倾诉，特别为您推介这几首温暖的曲目 ${namesStr}：`
+            } else if (songMetas.length === 1) {
+              aiText = mode.value === 'dj'
+                ? `🎧【${djSettings.city}电台】欢迎收听 AI 音乐调频！结合此时此刻的天气，特别为您播送《${songMetas[0].name}》：`
+                : `💬 听到关于"${rawQuery}"的倾诉，特别懂你。为您推介这首温暖的《${songMetas[0].name}》：`
+            } else {
+              aiText = `为您找到了关于 "${rawQuery}" 的相关推荐，请聆听：`
+            }
 
             messageList.value[aiMsgIndex] = {
               sender: 'ai',
               text: aiText,
-              musicCard: songMeta,
+              musicCards: songMetas,
+              musicCard: songMetas[0] ?? null,
             }
+            addSongsToRecommendHistory(songMetas)
+            saveCurrentSessionToHistory()
             isGenerating.value = false
 
             if (
@@ -630,14 +778,17 @@ export default {
                 console.error('TTS 播放异常:', err)
               }
             }
-          })()
+          }
+          runFallback().catch(err => { console.error(err) })
         }, 600)
         return
       }
 
-      // 如果配置了 API Key，走真正的 LLM SSE 接口
-      const formattedHistory = messageList.value.slice(0, -1).map((msg) => ({
-        role: msg.sender === 'user' ? 'user' : 'assistant',
+      // 如果配置了 API Key，走真正的 LLM SSE 接口（带滑动窗口上下文 memory 记忆）
+      const validMessages = messageList.value.slice(0, -1).filter(msg => msg.text && msg.text !== '...')
+      const recentTurnCount = 8
+      const formattedHistory = validMessages.slice(-recentTurnCount).map((msg) => ({
+        role: (msg.sender === 'user' ? 'user' : 'assistant'),
         content: msg.text,
       }))
 
@@ -653,22 +804,42 @@ export default {
             messageList.value[aiMsgIndex].text = accumulatedText
           },
           onToolCall(toolCall) {
-            void (async() => {
+            const handleToolCall = async() => {
               console.log('触发 LLM Tool Call:', toolCall)
               const kw = toolCall.arguments?.keyword || rawQuery
               const songMeta = await executeMusicSearch(kw)
-              messageList.value[aiMsgIndex].musicCard = songMeta
-            })()
+              if (songMeta) {
+                const currentCards = messageList.value[aiMsgIndex].musicCards || []
+                if (!currentCards.some(c => c.id === songMeta.id)) {
+                  messageList.value[aiMsgIndex].musicCards = [...currentCards, songMeta]
+                  messageList.value[aiMsgIndex].musicCard = songMeta
+                  addSongsToRecommendHistory([songMeta])
+                }
+              }
+            }
+            handleToolCall().catch(err => { console.error(err) })
           },
           onComplete(fullText) {
-            void (async() => {
+            const handleComplete = async() => {
               isGenerating.value = false
 
-              // 从 AI 回复文本中精准抽取《...》书名号推荐歌名
-              if (!messageList.value[aiMsgIndex].musicCard) {
-                const songName = extractRecommendedSongName(fullText, rawQuery)
-                const songMeta = await executeMusicSearch(songName)
-                messageList.value[aiMsgIndex].musicCard = songMeta
+              // 从 AI 回复文本中抽取所有《...》书名号推荐歌名列表（1 个或多个）
+              if (!messageList.value[aiMsgIndex].musicCards?.length) {
+                const songNames = extractRecommendedSongList(fullText, rawQuery)
+                const songMetas = (await Promise.all(songNames.map(async name => executeMusicSearch(name)))).filter(Boolean)
+                if (songMetas.length) {
+                  messageList.value[aiMsgIndex].musicCards = songMetas
+                  messageList.value[aiMsgIndex].musicCard = songMetas[0]
+                  addSongsToRecommendHistory(songMetas)
+                }
+              }
+
+              saveCurrentSessionToHistory()
+
+              if (djSettings.apiKey && messageList.value.length >= 3) {
+                generateAiProfileSummary(djSettings.apiKey, djSettings.baseUrl, djSettings.activeModel).catch(err => {
+                  console.warn('静默更新 AI 用户画像异常:', err)
+                })
               }
 
               if (
@@ -682,7 +853,8 @@ export default {
                   console.error('TTS 播报异常:', err)
                 }
               }
-            })()
+            }
+            handleComplete().catch(err => { console.error(err) })
           },
           onError(err) {
             isGenerating.value = false
@@ -693,14 +865,37 @@ export default {
     }
 
     const toggleMusicPlay = (musicCard) => {
-      isPlayingMusic.value = !isPlayingMusic.value
-      console.log('切歌与播放控制:', musicCard)
+      isPlayingMusic.value = true
+      recordPlayedSong(musicCard.name, musicCard.singer)
+      console.log('触发播放聊天推荐音乐:', musicCard)
+
+      void (async() => {
+        const songMeta = await executeMusicSearch(`${musicCard.name} ${musicCard.singer || ''}`)
+        if (songMeta?.source) {
+          // 更新封面与来源，保证UI可以显示并在加入列表时不报错
+          musicCard.pic = songMeta.meta?.picUrl ?? songMeta.pic
+          musicCard.source = songMeta.source
+
+          addSongsToRecommendHistory([songMeta])
+
+          addTempPlayList([{ listId: LIST_IDS.PLAY_LATER, musicInfo: songMeta, isTop: true }])
+          void playNext(true)
+        }
+      })()
     }
 
     const onSaveSetting = () => {
       generateAiGreeting()
       generateDynamicSuggestions()
-      void initEnvironment()
+      initEnvironment().catch(err => { console.error(err) })
+    }
+
+    const handleSendClick = () => {
+      sendMessage().catch(err => { console.error(err) })
+    }
+
+    const handleRefreshClick = () => {
+      refreshSuggestions().catch(err => { console.error(err) })
     }
 
     return {
@@ -733,6 +928,8 @@ export default {
       applySuggestion,
       refreshSuggestions,
       sendMessage,
+      handleSendClick,
+      handleRefreshClick,
       toggleMusicPlay,
       onSaveSetting,
     }
@@ -1258,15 +1455,21 @@ export default {
   flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
+  max-width: 100%;
 }
 
 .chip {
-  padding: 8px 14px;
-  border-radius: 20px;
+  padding: 6px 12px;
+  border-radius: 16px;
   border: 1px solid var(--color-primary-light-400-alpha-500);
   background: var(--color-primary-light-900-alpha-300);
   color: var(--color-font);
-  font-size: 12.5px;
+  font-size: 11.5px;
+  line-height: 1.3;
+  max-width: 200px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
   cursor: pointer;
   transition: all @transition-fast;
 
@@ -1281,6 +1484,15 @@ export default {
   background: transparent;
   border-style: dashed;
   color: var(--color-primary);
+  max-width: none;
+}
+
+.musicCardList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+  width: 100%;
 }
 
 /* 2. 对话流视图 */
@@ -1409,6 +1621,14 @@ export default {
   font-size: 20px;
   z-index: 2;
   box-shadow: 2px 2px 8px rgba(0, 0, 0, 0.2);
+  overflow: hidden;
+}
+
+.albumCoverImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 6px;
 }
 
 .vinylDisc {
@@ -1459,6 +1679,17 @@ export default {
 .artist {
   font-size: 12px;
   color: var(--color-font-label);
+}
+
+.recommendReason {
+  font-size: 11.5px;
+  color: var(--color-primary);
+  margin-top: 3px;
+  line-height: 1.35;
+  background: var(--color-primary-light-900-alpha-200);
+  padding: 4px 8px;
+  border-radius: 6px;
+  border-left: 2px solid var(--color-primary);
 }
 
 .playBtn {

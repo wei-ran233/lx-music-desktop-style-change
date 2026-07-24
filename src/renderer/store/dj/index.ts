@@ -8,12 +8,25 @@ export interface SystemPromptGroup {
   profileLearning: string
 }
 
+export interface ModelConfig {
+  id: string
+  name: string
+  baseUrl: string
+  apiKey: string
+  modelName: string
+  customCurl?: string
+}
+
 export interface DjSettingsState {
   selectedModel: string
   customModelName: string
   activeModel: string
   baseUrl: string
   apiKey: string
+
+  concurrencyLimit: number
+  activeModelId: string
+  modelList: ModelConfig[]
 
   djPromptRole: string
   djPromptOpening: string
@@ -37,6 +50,7 @@ export interface DjSettingsState {
   duckingVolume: number
 
   weatherApiKey: string
+  weatherApiHost: string
   city: string
 }
 
@@ -57,6 +71,7 @@ export interface HistoryItem {
 
 const SETTINGS_STORAGE_KEY = 'lx_ai_dj_settings_v1'
 const LOGS_STORAGE_KEY = 'lx_ai_dj_logs_v1'
+const HISTORY_STORAGE_KEY = 'lx_ai_dj_history_v1'
 
 const defaultSettings: DjSettingsState = {
   selectedModel: 'glm-4.7-flash',
@@ -64,6 +79,32 @@ const defaultSettings: DjSettingsState = {
   activeModel: 'glm-4.7-flash',
   baseUrl: 'https://open.bigmodel.cn/api/paas/v4/',
   apiKey: '',
+
+  concurrencyLimit: 3,
+  activeModelId: 'glm-4.7-flash',
+  modelList: [
+    {
+      id: 'glm-4.7-flash',
+      name: '智谱 GLM-4.7-Flash (推荐)',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4/',
+      apiKey: '',
+      modelName: 'glm-4.7-flash',
+    },
+    {
+      id: 'glm-4-flash',
+      name: '智谱 GLM-4-Flash (极速)',
+      baseUrl: 'https://open.bigmodel.cn/api/paas/v4/',
+      apiKey: '',
+      modelName: 'glm-4-flash',
+    },
+    {
+      id: 'deepseek-chat',
+      name: 'DeepSeek-V3 / R1',
+      baseUrl: 'https://api.deepseek.com/',
+      apiKey: '',
+      modelName: 'deepseek-chat',
+    },
+  ],
 
   djPromptRole: '你是一名拥有丰富音乐知识与极客精神的专业电台音乐 DJ。你的声音性感优雅，性格热情幽默且充满都市感。你不仅精通各种音乐类型（如 R&B、CityPop、爵士、摇滚、纯音乐），还能通过富有感染力的语言将音乐与用户当前的环境相连接。',
   djPromptOpening: '结合用户所在城市的天气（如晴天、雨天、阴天、雪天）、实时时间段（早晨唤醒、午后茶歇、傍晚通勤、深夜电台）以及气温，生成极具仪式感与氛围感的广播频道开场白。例如：“欢迎收听 AI 音乐调频。现在是北京时间傍晚，窗外飘着微雨，温度 22℃。在这样一个适合放空的时刻，我是你的专属 DJ……”',
@@ -87,6 +128,7 @@ const defaultSettings: DjSettingsState = {
   duckingVolume: 20,
 
   weatherApiKey: '',
+  weatherApiHost: '',
   city: '北京',
 }
 
@@ -138,5 +180,39 @@ export const addProfileLog = (content: string) => {
     localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(profileLogs))
   } catch (err) {
     console.error('保存 AI DJ 日志失败:', err)
+  }
+}
+
+interface HistoryStorageData {
+  djHistory: HistoryItem[]
+  chatHistory: HistoryItem[]
+  recommendHistory: HistoryItem[]
+}
+
+const loadSavedHistory = (): HistoryStorageData => {
+  try {
+    const saved = localStorage.getItem(HISTORY_STORAGE_KEY)
+    if (saved) return JSON.parse(saved)
+  } catch (err) {
+    console.error('加载 AI DJ 历史记录失败:', err)
+  }
+  return { djHistory: [], chatHistory: [], recommendHistory: [] }
+}
+
+const initialHistory = loadSavedHistory()
+
+export const djHistoryList = reactive<HistoryItem[]>(initialHistory.djHistory)
+export const chatHistoryList = reactive<HistoryItem[]>(initialHistory.chatHistory)
+export const recommendHistoryList = reactive<HistoryItem[]>(initialHistory.recommendHistory)
+
+export const saveHistory = () => {
+  try {
+    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({
+      djHistory: djHistoryList,
+      chatHistory: chatHistoryList,
+      recommendHistory: recommendHistoryList,
+    }))
+  } catch (err) {
+    console.error('保存 AI DJ 历史记录失败:', err)
   }
 }

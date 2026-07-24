@@ -140,6 +140,19 @@
           <div v-if="activeCategory === 'profileLogs'" :class="$style.section">
             <h4 :class="$style.sectionTitle">📊 用户品味画像与分析日志</h4>
 
+            <!-- AI 深度长效画像卡片 -->
+            <div :class="$style.aiProfileCard">
+              <div :class="$style.aiProfileHeader">
+                <span :class="$style.aiProfileTitle">🧠 AI 深度音乐审美与心理长效画像</span>
+                <button type="button" :class="$style.generateAiProfileBtn" :disabled="isGeneratingProfile" @click="handleGenerateAiProfile">
+                  {{ isGeneratingProfile ? '分析中...' : '⚡ 重新触发 AI 画像总结' }}
+                </button>
+              </div>
+              <p :class="$style.aiProfileContent">
+                {{ aiProfileSummary || '暂无深度 AI 画像。请点击右侧按钮发起提炼，或在日常切歌点播与聊天中由系统自动更新。' }}
+              </p>
+            </div>
+
             <div :class="$style.profileSummaryCard">
               <div :class="$style.summaryItem">
                 <span :class="$style.summaryLabel">主打曲风：</span>
@@ -150,12 +163,8 @@
                 <span :class="$style.summaryValue">周杰伦, 陈奕迅, 林俊杰, 莫文蔚</span>
               </div>
               <div :class="$style.summaryItem">
-                <span :class="$style.summaryLabel">场景行为规律：</span>
-                <span :class="$style.summaryValue">下雨天偏爱慢摇民谣，深夜倾向舒缓助眠钢琴曲，午后偏爱 Bossa Nova</span>
-              </div>
-              <div :class="$style.summaryItem">
                 <span :class="$style.summaryLabel">学习样本库：</span>
-                <span :class="$style.summaryValue">已分析“我的喜爱”歌单 24 首歌曲，提取 16 个风格标签</span>
+                <span :class="$style.summaryValue">已分析听歌轨迹与“我的喜爱”歌单提取 16 个风格标签</span>
               </div>
             </div>
 
@@ -168,12 +177,23 @@
             </div>
           </div>
 
-          <!-- 🤖 大模型选择与 API 接口配置 -->
+          <!-- 🤖 大模型选择、并发限制与 cURL 配置 -->
           <div v-if="activeCategory === 'llm'" :class="$style.section">
-            <h4 :class="$style.sectionTitle">🤖 大模型选择与 API 配置</h4>
+            <h4 :class="$style.sectionTitle">🤖 大模型选择、并发限制与 cURL 配置</h4>
 
+            <!-- 并发限制设置 -->
             <div :class="$style.formGroup">
-              <label>选择 AI 模型 (Model Selector)</label>
+              <label>⚡ 请求最高并发限制 (Concurrency Limit)</label>
+              <div :class="$style.sliderRow">
+                <input v-model.number="form.concurrencyLimit" type="range" min="1" max="10" :class="$style.slider" />
+                <span>{{ form.concurrencyLimit }} 次 / 并发</span>
+              </div>
+              <p :class="$style.fieldTip">限制后台打字机生成、动态建议获取、TTS 播报与主动连播的最大并发数。</p>
+            </div>
+
+            <!-- 选择 AI 模型 -->
+            <div :class="$style.formGroup">
+              <label>选择当前活跃 AI 模型 (Active Model Selector)</label>
               <select v-model="form.selectedModel" :class="$style.select" @change="onModelSelectChange">
                 <option value="glm-4.7-flash">智谱 GLM-4.7-Flash (免费高速模型 - 推荐)</option>
                 <option value="glm-4-flash">智谱 GLM-4-Flash (免费极速)</option>
@@ -198,6 +218,20 @@
             <div :class="$style.formGroup">
               <label>API Key</label>
               <input v-model="form.apiKey" type="password" placeholder="请输入你的 API Key" :class="$style.input" />
+            </div>
+
+            <!-- 通过 cURL 格式修改 / 导入模型参数 -->
+            <div :class="$style.formGroup">
+              <label>🛠️ 通过 cURL 命令行导入/编辑模型配置</label>
+              <textarea
+                v-model="curlInputText"
+                rows="4"
+                placeholder="粘贴包含 -X POST、Authorization Header 和 Payload 的 cURL 命令行，如：&#10;curl https://open.bigmodel.cn/api/paas/v4/chat/completions -H &quot;Authorization: Bearer YOUR_KEY&quot; -d '{&quot;model&quot;: &quot;glm-4.7-flash&quot;}'"
+                :class="$style.textarea"
+              ></textarea>
+              <button type="button" :class="$style.curlParseBtn" @click="handleParseCurl">
+                ⚡ 自动解析 cURL 并回填配置
+              </button>
             </div>
           </div>
 
@@ -274,7 +308,13 @@
             <h4 :class="$style.sectionTitle">🌤️ 环境感知与和风天气 API</h4>
             <div :class="$style.formGroup">
               <label>和风天气 API Key</label>
-              <input v-model="form.weatherApiKey" type="text" placeholder="填入 key 自动感知城市天气" :class="$style.input" />
+              <input v-model="form.weatherApiKey" type="password" placeholder="填入 key 自动感知城市天气" :class="$style.input" />
+            </div>
+
+            <div :class="$style.formGroup">
+              <label>自定义天气 API Host (可选)</label>
+              <input v-model="form.weatherApiHost" type="text" placeholder="例如：api.qweather.com" :class="$style.input" />
+              <p :class="$style.fieldTip">如果填写此项，将覆盖默认的和风天气官方 API Host 进行请求。</p>
             </div>
 
             <!-- 城市搜索与模糊匹配下拉菜单 -->
@@ -321,6 +361,8 @@
 import { ref, reactive, watch } from '@common/utils/vueTools'
 import { djSettings, saveDjSettings, profileLogs } from '@renderer/store/dj'
 import { searchCities } from '@renderer/utils/dj/weatherService'
+import { parseCurlCommand } from '@renderer/utils/dj/curlParser'
+import { getAiProfileSummary, generateAiProfileSummary } from '@renderer/utils/dj/userProfile'
 
 export default {
   name: 'DjSettingModal',
@@ -347,6 +389,9 @@ export default {
     const form = reactive({ ...djSettings })
     const cityResults = ref([])
     const showCityDropdown = ref(false)
+    const curlInputText = ref('')
+    const aiProfileSummary = ref(getAiProfileSummary())
+    const isGeneratingProfile = ref(false)
 
     watch(
       () => props.visible,
@@ -354,6 +399,8 @@ export default {
         if (newVal) {
           Object.assign(form, djSettings)
           showCityDropdown.value = false
+          curlInputText.value = ''
+          aiProfileSummary.value = getAiProfileSummary()
         }
       },
     )
@@ -361,7 +408,7 @@ export default {
     const onCityInput = () => {
       if (searchTimer) clearTimeout(searchTimer)
       searchTimer = setTimeout(() => {
-        void (async() => {
+        const doSearch = async() => {
           if (!form.city.trim()) {
             cityResults.value = []
             showCityDropdown.value = false
@@ -370,7 +417,8 @@ export default {
           const results = await searchCities(form.city)
           cityResults.value = results
           showCityDropdown.value = results.length > 0
-        })()
+        }
+        doSearch().catch(err => { console.error(err) })
       }, 300)
     }
 
@@ -388,6 +436,29 @@ export default {
     const onModelSelectChange = () => {
       if (form.selectedModel !== 'custom') {
         form.customModelName = ''
+      }
+    }
+
+    const handleParseCurl = () => {
+      if (!curlInputText.value.trim()) return
+      const parsed = parseCurlCommand(curlInputText.value)
+      if (parsed.baseUrl) form.baseUrl = parsed.baseUrl
+      if (parsed.apiKey) form.apiKey = parsed.apiKey
+      if (parsed.modelName) {
+        form.selectedModel = 'custom'
+        form.customModelName = parsed.modelName
+      }
+    }
+
+    const handleGenerateAiProfile = async() => {
+      if (isGeneratingProfile.value) return
+      isGeneratingProfile.value = true
+      try {
+        const activeModel = form.selectedModel === 'custom' ? form.customModelName : form.selectedModel
+        const summary = await generateAiProfileSummary(form.apiKey, form.baseUrl, activeModel)
+        aiProfileSummary.value = summary
+      } finally {
+        isGeneratingProfile.value = false
       }
     }
 
@@ -413,10 +484,15 @@ export default {
       logs: profileLogs,
       cityResults,
       showCityDropdown,
+      curlInputText,
+      aiProfileSummary,
+      isGeneratingProfile,
       onCityInput,
       onCityFocus,
       selectCity,
       onModelSelectChange,
+      handleParseCurl,
+      handleGenerateAiProfile,
       close,
       save,
     }
@@ -663,6 +739,53 @@ export default {
   cursor: pointer;
 }
 
+.aiProfileCard {
+  padding: 14px;
+  background: var(--color-primary-light-800-alpha-300);
+  border-radius: 12px;
+  border: 1px solid var(--color-primary-light-400-alpha-600);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.aiProfileHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.aiProfileTitle {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.generateAiProfileBtn {
+  padding: 4px 12px;
+  border-radius: 6px;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity @transition-fast;
+
+  &:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+}
+
+.aiProfileContent {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--color-font);
+  line-height: 1.6;
+}
+
 .profileSummaryCard {
   padding: 14px;
   background: var(--color-primary-light-900-alpha-300);
@@ -710,8 +833,22 @@ export default {
   font-family: monospace;
 }
 
-.logContent {
-  color: var(--color-font);
+.curlParseBtn {
+  align-self: flex-start;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--color-primary-light-400-alpha-600);
+  background: var(--color-primary-light-800-alpha-400);
+  color: var(--color-primary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all @transition-fast;
+
+  &:hover {
+    background: var(--color-primary);
+    color: #fff;
+  }
 }
 
 .footer {

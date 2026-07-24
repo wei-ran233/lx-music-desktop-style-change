@@ -18,7 +18,11 @@ const { Worker, isMainThread, parentPort } = require('worker_threads')
 
 function build() {
   console.time('build')
-  del.sync(['dist/**', 'build/**'])
+  try {
+    del.sync(['dist/**', 'build/**'])
+  } catch (e) {
+    try { del.sync(['dist/**']) } catch (_) {}
+  }
 
   const spinners = new Spinnies({ color: 'blue' })
   spinners.add('main', { text: 'main building' })

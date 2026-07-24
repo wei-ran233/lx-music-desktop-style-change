@@ -260,6 +260,8 @@ const createTarget = {
   },
 }
 
+const sleep = (ms) => new Promise(resolve => setTimeout(resolve, ms))
+
 /**
  *
  * @param {'win' | 'mac' | 'linux' | 'dir'} target 构建目标平台
@@ -276,22 +278,24 @@ const build = async(target, arch, packageType, publishType) => {
     return
   }
   const targetInfo = createTarget[target](arch, packageType)
-  // Promise is returned
-  await builder.build({
-    ...targetInfo.buildOptions,
-    publish: publishType ?? 'never',
-    x64: arch == 'x64' || arch == 'x86_64',
-    ia32: arch == 'x86' || arch == 'x86_64',
-    arm64: arch == 'arm64',
-    armv7l: arch == 'armv7l',
-    config: { ...options, ...targetInfo.options },
-  })
-  // .then((result) => {
-  //   console.log(JSON.stringify(result))
-  // })
-  // .catch((error) => {
-  //   console.error(error)
-  // })
+  for (let attempt = 1; attempt <= 3; attempt++) {
+    try {
+      await builder.build({
+        ...targetInfo.buildOptions,
+        publish: publishType ?? 'never',
+        x64: arch == 'x64' || arch == 'x86_64',
+        ia32: arch == 'x86' || arch == 'x86_64',
+        arm64: arch == 'arm64',
+        armv7l: arch == 'armv7l',
+        config: { ...options, ...targetInfo.options },
+      })
+      break
+    } catch (err) {
+      if (attempt === 3) throw err
+      console.warn(`Build attempt ${attempt} failed (${err.message}). Retrying in 4 seconds...`)
+      await sleep(4000)
+    }
+  }
 }
 
 const params = {}

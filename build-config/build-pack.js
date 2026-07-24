@@ -22,7 +22,7 @@ const options = {
   },
   directories: {
     buildResources: './resources',
-    output: './build',
+    output: './dist_release',
   },
   files: [
     '!node_modules/**/*',
@@ -280,6 +280,9 @@ const build = async(target, arch, packageType, publishType) => {
   const targetInfo = createTarget[target](arch, packageType)
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
+      const config = JSON.parse(JSON.stringify({ ...options, ...targetInfo.options }))
+      config.beforePack = beforePack
+      config.afterPack = afterPack
       await builder.build({
         ...targetInfo.buildOptions,
         publish: publishType ?? 'never',
@@ -287,7 +290,7 @@ const build = async(target, arch, packageType, publishType) => {
         ia32: arch == 'x86' || arch == 'x86_64',
         arm64: arch == 'arm64',
         armv7l: arch == 'armv7l',
-        config: { ...options, ...targetInfo.options },
+        config,
       })
       break
     } catch (err) {

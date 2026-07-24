@@ -22,7 +22,7 @@ const options = {
   },
   directories: {
     buildResources: './resources',
-    output: './dist_release',
+    output: './build',
   },
   files: [
     '!node_modules/**/*',

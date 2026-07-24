@@ -66,6 +66,8 @@ build
 
 dist
 
+dist_release
+
 publish/assets
 
 publish/utils/githubToken.js

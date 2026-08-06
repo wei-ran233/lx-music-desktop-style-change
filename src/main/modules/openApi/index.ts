@@ -2,7 +2,7 @@ import http from 'node:http'
 import querystring from 'node:querystring'
 import type { Socket } from 'node:net'
 import { getAddress } from '@common/utils/nodejs'
-import { sendTaskbarButtonClick } from '@main/modules/winMain'
+import { sendTaskbarButtonClick, sendDjAction } from '@main/modules/winMain'
 
 const sendResponse = (res: http.ServerResponse, code = 200, msg: string | Record<any, unknown> = 'OK', contentType = 'text/plain; charset=utf-8') => {
   res.writeHead(code, {
@@ -190,6 +190,20 @@ const handleStartServer = async(port: number, ip: string) => new Promise<void>((
           code = 400
           msg = 'Invalid mute value'
         }
+        break
+      }
+      case '/dj': {
+        // AI DJ 动作：/dj?action=recommend&keyword=周杰伦
+        const q = querystring.parse(query ?? '')
+        const action = String(q.action ?? 'recommend')
+        const keyword = typeof q.keyword == 'string' ? q.keyword : ''
+        if (!['recommend', 'play', 'skip', 'continue'].includes(action)) {
+          code = 400
+          msg = 'Invalid dj action'
+          break
+        }
+        sendDjAction({ action, keyword })
+        msg = `DJ action "${action}" sent`
         break
       }
       case '/subscribe-player-status':

@@ -17,6 +17,7 @@ import {
   playMusicInfo,
   playedList,
 } from '@renderer/store/player/state'
+import { recordPlayedSong } from '@renderer/utils/dj/userProfile'
 import {
   setPlay,
   setAllStatus,
@@ -32,6 +33,7 @@ import useVolume from './useVolume'
 import useWatchList from './useWatchList'
 import { HOTKEY_PLAYER } from '@common/hotKey'
 import { playNext, pause, playPrev, togglePlay, collectMusic, uncollectMusic, dislikeMusic } from '@renderer/core/player'
+import { notifyDjSongEnded } from '@renderer/core/player/djAudio'
 import usePlaybackRate from './usePlaybackRate'
 import useSoundEffect from './useSoundEffect'
 import useMaxOutputChannelCount from './useMaxOutputChannelCount'
@@ -84,6 +86,10 @@ export default () => {
     if (window.lx.isPlayedStop) {
       setPause()
     }
+    // 全局监听播放行为：无论是否使用 DJ 功能，都记录用户实际听过的歌曲
+    if (musicInfo.name) {
+      recordPlayedSong(musicInfo.name, musicInfo.singer)
+    }
   }
   const handleEnded = () => {
     // setTimeout(() => {
@@ -92,6 +98,8 @@ export default () => {
       console.log('played stop')
       return
     }
+    // DJ 电台连播接管：若 DJ 回调消费了结束事件（推荐下一首），则不触发默认切歌
+    if (notifyDjSongEnded()) return
     // resetPlayerMusicInfo()
     // window.app_event.stop()
     void playNext(true)

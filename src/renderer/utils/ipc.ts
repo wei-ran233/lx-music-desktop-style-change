@@ -485,6 +485,16 @@ export const onPlayerAction = (listener: LX.IpcRendererEventListenerParams<{
     rendererOff(WIN_MAIN_RENDERER_EVENT_NAME.player_action_on_button_click, listener)
   }
 }
+// AI DJ 动作（开放 API 触发）
+export const onDjAction = (listener: LX.IpcRendererEventListenerParams<{
+  action: string
+  keyword?: string
+}>): RemoveListener => {
+  rendererOn(WIN_MAIN_RENDERER_EVENT_NAME.dj_action, listener)
+  return () => {
+    rendererOff(WIN_MAIN_RENDERER_EVENT_NAME.dj_action, listener)
+  }
+}
 // export const setTaskbarThumbnailClip = async(clip: Electron.Rectangle) => {
 //   await rendererInvoke(WIN_MAIN_RENDERER_EVENT_NAME.taskbar_set_thumbnail_clip, clip)
 // }

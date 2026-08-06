@@ -1,6 +1,7 @@
 import { setVolume as setPlayerVolume } from '@renderer/plugins/player'
 import { appSetting } from '@renderer/store/setting'
 import { djSettings } from '@renderer/store/dj'
+import { autoContinueRecommend } from '@renderer/composables/useDjChat'
 
 let djAudioTrack: HTMLAudioElement | null = null
 let fadeInterval: NodeJS.Timeout | null = null
@@ -176,8 +177,35 @@ export const stopDjSpeech = () => {
   }
 }
 
-type SongEndCallback = () => void
+type SongEndCallback = () => boolean
 const songEndCallbacks = new Set<SongEndCallback>()
+
+// 模块级单例：DJ 自动连播执行器（不依赖组件实例，跨页面可用）
+// 初始为 null，首次需要时延迟读取 autoContinueRecommend，避免模块循环依赖加载顺序问题
+let djAutoContinueExecutor: (() => boolean) | null = null
+
+/**
+ * 注入 DJ 自动连播执行器（保留接口，默认使用 useDjChat 的模块级实现）
+ */
+export const setDjAutoContinueExecutor = (executor: (() => boolean) | null) => {
+  djAutoContinueExecutor = executor
+}
+
+// 模块级单例：DJ 动作处理器（开放 API / 全局触发，由页面注入）
+type DjActionHandler = (data: { action: string, keyword?: string }) => void
+let djActionHandler: DjActionHandler | null = null
+
+export const setDjActionHandler = (handler: DjActionHandler | null) => {
+  djActionHandler = handler
+}
+
+export const notifyDjAction = (data: { action: string, keyword?: string }) => {
+  try {
+    djActionHandler?.(data)
+  } catch (e) {
+    console.error('DJ 动作处理失败:', e)
+  }
+}
 
 /**
  * 注册 DJ 主动连续播报（一首播完自动推荐并连播下一首）监听器
@@ -195,13 +223,25 @@ export const unregisterDjSongEndListener = (callback: SongEndCallback) => {
 
 /**
  * 触发 DJ 歌曲结束事件回调
+ * @returns 是否被消费（任一回调返回 true 表示已接管播放，主播放器不应再自动切歌）
  */
-export const notifyDjSongEnded = () => {
+export const notifyDjSongEnded = (): boolean => {
+  let consumed = false
+  // 优先使用模块级单例执行器（页面销毁后仍可用，不触发已卸载组件更新）
+  const executor = djAutoContinueExecutor ?? autoContinueRecommend
+  if (executor) {
+    try {
+      if (executor()) consumed = true
+    } catch (e) {
+      console.error('DJ 自动连播执行器异常:', e)
+    }
+  }
   songEndCallbacks.forEach(cb => {
     try {
-      cb()
+      if (cb()) consumed = true
     } catch (e) {
       console.error('DJ 歌曲结束回调执行失败:', e)
     }
   })
+  return consumed
 }

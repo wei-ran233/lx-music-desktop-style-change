@@ -141,6 +141,9 @@ const modules = {
     // player_action_set_thumbnail_clip: 'player_action_set_thumbnail_clip',
     player_action_on_button_click: 'player_action_on_button_click',
 
+    // AI DJ 动作（开放 API 触发）
+    dj_action: 'dj_action',
+
     get_themes: 'get_themes',
     save_theme: 'save_theme',
     remove_theme: 'remove_theme',

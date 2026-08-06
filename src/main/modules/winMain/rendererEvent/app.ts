@@ -140,6 +140,9 @@ export const sendFocus = () => {
 export const sendTaskbarButtonClick = (action: LX.Player.StatusButtonActions, data?: unknown) => {
   sendEvent(WIN_MAIN_RENDERER_EVENT_NAME.player_action_on_button_click, { action, data })
 }
+export const sendDjAction = (data: { action: string, keyword?: string }) => {
+  sendEvent(WIN_MAIN_RENDERER_EVENT_NAME.dj_action, data)
+}
 export const sendConfigChange = (setting: Partial<LX.AppSetting>) => {
   sendEvent(WIN_MAIN_RENDERER_EVENT_NAME.on_config_change, setting)
 }

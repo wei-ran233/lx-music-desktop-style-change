@@ -34,19 +34,18 @@
 
 ## 🚀 自定义修改版说明 (lx-music-desktop-style-change)
 
-> **📦 当前版本号**：`v2.12.3-beta.9`
+> **📦 当前版本号**：`v2.12.3-beta.10`
 
 本仓库基于原版 [lx-music-desktop](https://github.com/lyswhut/lx-music-desktop) 进行个性化 UI 风格调整与功能增强。主要包含以下修改与更新：
 
 ### 🌟 主要修改内容
 
-1. **🤖 AI 电台与智能播报 (⚠️ 正在测试中)**
+1. **🤖 AI 电台与智能播报 (✅ 功能已可用)**
    - 集成 AI DJ 交互界面与配置面板，支持接入通用 LLM 大模型及 TTS 语音合成服务。
    - 支持一键粘贴 cURL 命令快速解析生成 API 请求头及参数。
    - 支持天气、新闻等背景融入与音频流播放控制。
-   - **架构解耦与组合式 API**：重构 AI DJ 界面逻辑为独立的 Vue 3 Composables（`useDjChat`、`useDjHistory`、`useDjWeather`），优化界面渲染性能与状态持久化。
+   - **架构解耦与组合式 API**：重组 AI DJ 界面逻辑为独立的 Vue 3 Composables（`useDjChat`、`useDjHistory`、`useDjWeather`），优化界面渲染性能与状态持久化。
    - **Prompt 模板引擎**：支持自定义提示词模板（包含动态系统变量替换与上下文渲染），可自由创建、编辑与切换不同人设模板。
-   - *注：AI 电台功能目前处于测试阶段，可能存在部分边界情况需进一步测试与优化。*
 
 2. **🎵 本地音乐与播放体验优化**
    - **0 延迟秒播**：重构播放逻辑，解除播放动作对底层数据库同步的硬依赖，实现秒级即播。
@@ -63,13 +62,13 @@
 
 ### 📦 发布文件与适配系统说明
 
-- **安装包版**：`LX-Music-桌面版-v2.12.3-beta.9-Windows-x64-安装包版.exe`（常规安装文件，双击后按提示进行安装）。
-- **免安装版**：`LX-Music-桌面版-v2.12.3-beta.9-Windows-x64-免安装绿色版.zip`（便携解压版，解压后双击 `lx-music-desktop.exe` 即可运行）。
+- **安装包版**：`LX-Music-桌面版-v2.12.3-beta.10-Windows-x64-安装包版.exe`（常规安装文件，双击后按提示进行安装）。
+- **免安装版**：`LX-Music-桌面版-v2.12.3-beta.10-Windows-x64-免安装绿色版.zip`（便携解压版，解压后双击 `lx-music-desktop.exe` 即可运行）。
 - **适配系统**：支持 Windows 7 / Windows 8 / Windows 10 / Windows 11 及以上 64 位 (x64) 操作系统。
 
 ### ⚠️ 功能兼容性状态说明
 
-- **AI 电台 (AI DJ)**：正在测试中。
+- **AI 电台 (AI DJ)**：已可用（支持通用 LLM/TTS 及 Prompt 模板）。
 - **数据同步服务 (Sync Service)**：还未适配。
 - **开放 API 支持 (Open API)**：还未适配。
 

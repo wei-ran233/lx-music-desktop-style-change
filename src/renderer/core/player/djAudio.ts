@@ -7,6 +7,7 @@ let djAudioTrack: HTMLAudioElement | null = null
 let fadeInterval: NodeJS.Timeout | null = null
 let isDucking = false
 let savedOriginalVolume = 1
+let activeObjectUrl: string | null = null
 
 const getDjAudioTrack = (): HTMLAudioElement => {
   if (!djAudioTrack) {
@@ -22,6 +23,12 @@ const clearFadeInterval = () => {
     clearInterval(fadeInterval)
     fadeInterval = null
   }
+}
+
+const revokeActiveObjectUrl = () => {
+  if (!activeObjectUrl) return
+  URL.revokeObjectURL(activeObjectUrl)
+  activeObjectUrl = null
 }
 
 /**
@@ -52,10 +59,14 @@ const fadePlayerVolume = (targetVolume: number, durationMs = 400, onComplete?: (
  * 语音播报结束，平滑恢复 Fade Up 主播放器音量
  */
 const onSpeechEnd = () => {
-  if (!isDucking) return
+  if (!isDucking) {
+    revokeActiveObjectUrl()
+    return
+  }
 
   fadePlayerVolume(savedOriginalVolume, 400, () => {
     isDucking = false
+    revokeActiveObjectUrl()
   })
 }
 
@@ -144,6 +155,7 @@ export const playDjSpeech = (audioSrc: string) => {
   // 2. 音频网络/Blob URL
   const audio = getDjAudioTrack()
   audio.src = audioSrc
+  activeObjectUrl = audioSrc.startsWith('blob:') ? audioSrc : null
 
   startDuckingAndPlay(() => {
     audio.play().catch((err) => {
@@ -169,7 +181,10 @@ export const stopDjSpeech = () => {
   if (djAudioTrack) {
     djAudioTrack.pause()
     djAudioTrack.currentTime = 0
+    djAudioTrack.removeAttribute('src')
+    djAudioTrack.load()
   }
+  revokeActiveObjectUrl()
   if (isDucking) {
     clearFadeInterval()
     setPlayerVolume(savedOriginalVolume)

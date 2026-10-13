@@ -124,12 +124,15 @@ export default {
   display: flex;
   flex-flow: column nowrap;
   position: relative;
+  min-width: 0;
 }
 .header {
   flex: none;
   width: 100%;
   display: flex;
-  flex-flow: row nowrap;
+  flex-flow: row wrap;
+  align-items: center;
+  gap: 6px;
   // padding-right: 5px;
   // box-sizing: border-box;
   padding-bottom: 5px;
@@ -137,7 +140,8 @@ export default {
 .left {
   flex: auto;
   display: flex;
-  flex-flow: row nowrap;
+  flex-flow: row wrap;
+  min-width: 0;
 }
 
 .btn {
@@ -208,6 +212,16 @@ export default {
         }
       }
     }
+  }
+}
+
+@media (max-width: 920px) {
+  .header {
+    padding: 4px 8px 6px;
+  }
+
+  .left {
+    width: 100%;
   }
 }
 

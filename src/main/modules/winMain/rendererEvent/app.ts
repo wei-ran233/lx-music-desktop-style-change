@@ -7,6 +7,7 @@ import {
   minimize,
   maximize,
   closeWindow,
+  getWindowStatus,
   showWindow,
   setFullScreen,
   sendEvent,
@@ -52,6 +53,9 @@ export default () => {
   })
   mainOn(WIN_MAIN_RENDERER_EVENT_NAME.focus, () => {
     showWindow()
+  })
+  mainHandle(WIN_MAIN_RENDERER_EVENT_NAME.get_window_status, async() => {
+    return getWindowStatus()
   })
   mainOn<boolean>(WIN_MAIN_RENDERER_EVENT_NAME.set_power_save_blocker, ({ params: enabled }) => {
     setPowerSaveBlocker(enabled)

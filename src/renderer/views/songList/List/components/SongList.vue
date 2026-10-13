@@ -106,26 +106,31 @@ defineExpose({
   flex-flow: column nowrap;
   font-size: 14px;
   box-sizing: border-box;
-  padding: 15px 15px 0;
+  padding: var(--space-content-y) var(--space-content-x) 0;
 
   ul {
-    display: flex;
-    flex-flow: row wrap;
-    justify-content: space-between;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: 18px;
   }
 }
 .item {
   max-width: 360px;
-  width: 32%;
+  width: 100%;
   box-sizing: border-box;
   display: flex;
   // flex-flow: column nowrap;
   // padding: 10px;
-  margin-bottom: 20px;
+  margin-bottom: 0;
   cursor: pointer;
-  transition: opacity @transition-normal;
+  transition: opacity @transition-normal, transform var(--transition-fast), box-shadow var(--transition-fast);
   &:hover {
-    opacity: .7;
+    opacity: 1;
+    transform: translateY(-2px);
+  }
+
+  &:empty {
+    display: none;
   }
 }
 .image {
@@ -134,12 +139,12 @@ defineExpose({
   display: flex;
   background-position: center;
   background-size: cover;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow: hidden;
   opacity: .9;
   aspect-ratio: 1 / 1;
 
-  box-shadow: 0 0 2px 0 rgba(0,0,0,.2);
+  box-shadow: var(--shadow-sm);
 }
 .img {
   width: 100%;
@@ -151,6 +156,7 @@ defineExpose({
   flex: auto;
   padding: 2px 15px 2px 7px;
   overflow: hidden;
+  min-width: 0;
   h4 {
     font-size: 14px;
     // height: 2.6em;
@@ -213,6 +219,19 @@ defineExpose({
   p {
     font-size: 24px;
     color: var(--color-font-label);
+  }
+}
+
+@media (max-width: 920px) {
+  .listContent {
+    ul {
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 14px;
+    }
+  }
+
+  .songlist_info {
+    gap: 8px;
   }
 }
 

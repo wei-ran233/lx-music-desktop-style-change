@@ -24,6 +24,7 @@ import { playNext, handlePlay } from '@renderer/core/player'
 import { playInfo } from '@renderer/store/player/state'
 import { addListMusics } from '@renderer/store/list/action'
 import { LIST_IDS } from '@common/constants'
+import { getCurrentDjWeatherContext } from '@renderer/composables/useDjWeather'
 import type { DjMode, ChatMessage, MusicCard, WeatherType } from '@renderer/utils/dj/types'
 
 // 模块级单例状态：页面卸载后仍存活，供 DJ 自动连播等跨页面逻辑使用
@@ -38,6 +39,16 @@ const showPlusMenu = ref(false)
 const djMode = ref<DjMode>('chat')
 // DJ 页面是否处于活跃状态（进入页面置 true，离开置 false）
 let isDjPageActive = false
+let activeGenerationAbortController: AbortController | null = null
+let activeGenerationId = 0
+
+const clearActiveGeneration = (generationId: number, abortController: AbortController | null) => {
+  if (generationId !== activeGenerationId) return
+  if (!abortController || activeGenerationAbortController === abortController) {
+    activeGenerationAbortController = null
+  }
+  isGenerating.value = false
+}
 
 const hasMessages = computed(() => messageList.value.length > 0)
 
@@ -72,6 +83,92 @@ const hasBeenRecommended = (name?: string): boolean => {
 /** 重置去重记录（新建对话时调用） */
 export const resetRecommendedHistory = () => {
   recommendedHistory.splice(0, recommendedHistory.length)
+}
+
+const isAbortError = (err: unknown): boolean => {
+  return !!err && typeof err === 'object' && (err as Error).name === 'AbortError'
+}
+
+interface MusicSearchCacheEntry {
+  data: LX.Music.MusicInfo | null
+  expiresAt: number
+}
+
+const MUSIC_SEARCH_CACHE_TTL_MS = 5 * 60 * 1000
+const MUSIC_SEARCH_CACHE_MAX_SIZE = 80
+const musicSearchCache = new Map<string, MusicSearchCacheEntry>()
+const pendingMusicSearches = new Map<string, Promise<LX.Music.MusicInfo | null>>()
+
+const getMusicSearchCacheKey = (kw: string, singer?: string) => {
+  return `${kw.trim().toLowerCase()}::${(singer ?? '').trim().toLowerCase()}`
+}
+
+const getCachedMusicSearch = (key: string): MusicSearchCacheEntry | null => {
+  const entry = musicSearchCache.get(key)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    musicSearchCache.delete(key)
+    return null
+  }
+  return entry
+}
+
+const setCachedMusicSearch = (key: string, data: LX.Music.MusicInfo | null) => {
+  musicSearchCache.set(key, {
+    data,
+    expiresAt: Date.now() + MUSIC_SEARCH_CACHE_TTL_MS,
+  })
+  if (musicSearchCache.size > MUSIC_SEARCH_CACHE_MAX_SIZE) {
+    const firstKey = musicSearchCache.keys().next().value
+    if (firstKey) musicSearchCache.delete(firstKey)
+  }
+}
+
+const MAX_LLM_CONTEXT_MESSAGES = 12
+const MAX_LLM_CONTEXT_CHARS = 7000
+const MAX_LLM_SINGLE_MESSAGE_CHARS = 1200
+
+const trimContextText = (text: string, maxLength: number): string => {
+  if (text.length <= maxLength) return text
+  return `${text.slice(0, maxLength)}...`
+}
+
+const formatContextMessage = (msg: ChatMessage): string => {
+  let content = trimContextText(msg.text || '', MAX_LLM_SINGLE_MESSAGE_CHARS)
+  const cards = msg.musicCards || (msg.musicCard ? [msg.musicCard] : [])
+  const cardNames = cards
+    .filter(card => !!card?.name)
+    .slice(0, 4)
+    .map(card => `《${card.name}》${card.singer ? `-${card.singer}` : ''}`)
+
+  if (cardNames.length) {
+    const appendix = `\n已推荐歌曲：${cardNames.join('、')}`
+    content = trimContextText(`${content}${appendix}`, MAX_LLM_SINGLE_MESSAGE_CHARS)
+  }
+  return content
+}
+
+const buildLlmHistory = (messages: ChatMessage[]) => {
+  const selected: Array<{ role: 'user' | 'assistant', content: string }> = []
+  let totalLength = 0
+
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (selected.length >= MAX_LLM_CONTEXT_MESSAGES) break
+    const msg = messages[i]
+    if (!msg.text || msg.text === '...') continue
+
+    const content = formatContextMessage(msg)
+    if (!content) continue
+    if (totalLength + content.length > MAX_LLM_CONTEXT_CHARS && selected.length > 0) break
+
+    selected.unshift({
+      role: msg.sender === 'user' ? 'user' : 'assistant',
+      content,
+    })
+    totalLength += content.length
+  }
+
+  return selected
 }
 
 export function useDjChat() {
@@ -152,6 +249,24 @@ export function useDjChat() {
   }
 
   const executeMusicSearchFull = async(kw: string, singerHint?: string): Promise<LX.Music.MusicInfo | null> => {
+    const cacheKey = getMusicSearchCacheKey(kw, singerHint)
+    const cached = getCachedMusicSearch(cacheKey)
+    if (cached) return cached.data
+
+    const pending = pendingMusicSearches.get(cacheKey)
+    if (pending) return pending
+
+    const promise = doExecuteMusicSearchFull(kw, singerHint).then((result) => {
+      setCachedMusicSearch(cacheKey, result)
+      return result
+    }).finally(() => {
+      pendingMusicSearches.delete(cacheKey)
+    })
+    pendingMusicSearches.set(cacheKey, promise)
+    return promise
+  }
+
+  const doExecuteMusicSearchFull = async(kw: string, singerHint?: string): Promise<LX.Music.MusicInfo | null> => {
     try {
       const results = await musicSdk.searchMusic({ name: kw, singer: singerHint ?? '', source: undefined, limit: 5 })
       let topSong = pickBestOriginal(results)
@@ -223,21 +338,28 @@ export function useDjChat() {
     inputMessage.value = ''
     activeFeatureTag.value = null
     isGenerating.value = true
+    const generationId = ++activeGenerationId
 
     // 添加 AI 占位
     const aiMsgIndex = messageList.value.length
     messageList.value.push({ sender: 'ai', text: '...', musicCards: undefined })
 
-    // 未配置 API Key → 使用本地模板引擎
-    if (!djSettings.apiKey) {
-      await handleLocalRecommendation(rawQuery, mode, weatherStr, weatherType, aiMsgIndex, onSaveSession)
-      isGenerating.value = false
-      return
-    }
+    const abortController = new AbortController()
+    activeGenerationAbortController = abortController
+    try {
+      // 未配置 API Key → 使用本地模板引擎
+      if (!djSettings.apiKey) {
+        await handleLocalRecommendation(rawQuery, mode, weatherStr, weatherType, aiMsgIndex, onSaveSession, abortController.signal, generationId)
+        return
+      }
 
-    // 配置了 API Key → 走 LLM
-    await handleLlmStream(rawQuery, mode, weatherStr, weatherType, aiMsgIndex, onSaveSession)
-    isGenerating.value = false
+      // 配置了 API Key → 走 LLM
+      await handleLlmStream(rawQuery, mode, weatherStr, weatherType, aiMsgIndex, onSaveSession, abortController.signal, generationId)
+    } catch (err) {
+      if (!isAbortError(err)) console.error('AI DJ 发送消息失败:', err)
+    } finally {
+      clearActiveGeneration(generationId, abortController)
+    }
   }
 
   /** 本地推荐处理（无 API Key 时） */
@@ -248,7 +370,10 @@ export function useDjChat() {
     weatherType: WeatherType,
     aiMsgIndex: number,
     onSaveSession?: () => void,
+    signal?: AbortSignal,
+    generationId?: number,
   ) => {
+    const isStaleGeneration = () => (signal?.aborted ?? false) || (generationId != null && generationId !== activeGenerationId)
     const lower = rawQuery.toLowerCase()
     const isGreeting = ['你好', 'hi', 'hello', '在吗', '哈啰', '早上好', '晚安'].includes(lower)
 
@@ -275,6 +400,7 @@ export function useDjChat() {
     const fullResults = (await Promise.all(
       targetKws.slice(0, 3).map(async t => executeMusicSearchFull(t.name, t.singer)),
     )).filter(Boolean) as LX.Music.MusicInfo[]
+    if (isStaleGeneration()) return
     const songMetas = fullResults.map(full => markRaw({
       name: full.name,
       singer: full.singer,
@@ -325,9 +451,11 @@ export function useDjChat() {
       musicCard: songMetas[0] ?? null,
     }
 
+    if (isStaleGeneration()) return
     onSaveSession?.()
 
     // DJ 模式自动播放首推歌曲（直接使用完整 MusicInfo，避免二次搜索）
+    if (isStaleGeneration()) return
     if (mode === 'dj' && djSettings.djAutoPlay && fullResults.length > 0) {
       try {
         await playMusicCard(songMetas[0], fullResults[0])
@@ -341,11 +469,13 @@ export function useDjChat() {
       (mode === 'dj' && djSettings.enableDjSpeech) ||
       (mode === 'chat' && djSettings.enableChatSpeech)
     ) {
+      if (isStaleGeneration()) return
       try {
-        const audioUrl = await synthesizeSpeech(aiText)
+        const audioUrl = await synthesizeSpeech(aiText, { signal })
+        if (isStaleGeneration()) return
         playDjSpeech(audioUrl)
       } catch (err) {
-        console.error('TTS 播放异常:', err)
+        if (!isAbortError(err)) console.error('TTS 播放异常:', err)
       }
     }
   }
@@ -358,15 +488,11 @@ export function useDjChat() {
     weatherType: WeatherType,
     aiMsgIndex: number,
     onSaveSession?: () => void,
+    signal?: AbortSignal,
+    generationId?: number,
   ) => {
-    const validMessages = messageList.value
-      .slice(0, -1)
-      .filter(msg => msg.text && msg.text !== '...')
-    const recentTurnCount = 8
-    const formattedHistory = validMessages.slice(-recentTurnCount).map(msg => ({
-      role: (msg.sender === 'user' ? 'user' : 'assistant') as 'user' | 'assistant',
-      content: msg.text,
-    }))
+    const isStaleGeneration = () => (signal?.aborted ?? false) || (generationId != null && generationId !== activeGenerationId)
+    const formattedHistory = buildLlmHistory(messageList.value.slice(0, -1))
 
     let accumulatedText = ''
 
@@ -376,87 +502,112 @@ export function useDjChat() {
       weatherStr,
       {
         onToken(token) {
+          if (isStaleGeneration()) return
           accumulatedText += token
           messageList.value[aiMsgIndex].text = accumulatedText
         },
-        onToolCall(toolCall) {
-          const handleToolCall = async() => {
-            const kw = toolCall.arguments?.keyword || rawQuery
-            const songMeta = await executeMusicSearch(kw)
-            if (songMeta) {
-              const currentCards = messageList.value[aiMsgIndex].musicCards || []
-              if (!currentCards.some(c => c.id === songMeta.id)) {
-                messageList.value[aiMsgIndex].musicCards = [...currentCards, songMeta]
-                messageList.value[aiMsgIndex].musicCard = songMeta
-              }
-            }
-          }
-          handleToolCall().catch(err => { console.error(err) })
+        onThinkingDelta(token) {
+          if (isStaleGeneration()) return
+          const current = messageList.value[aiMsgIndex].thinkingText || ''
+          messageList.value[aiMsgIndex].thinkingText = current + token
         },
-        onComplete(fullText) {
-          const handleComplete = async() => {
-            // 剥离 JSON 数据块，只保留纯文案
-            const cleanText = stripJsonBlock(fullText) || stripJsonBlock(messageList.value[aiMsgIndex].text || '')
-            if (cleanText) messageList.value[aiMsgIndex].text = cleanText
-
-            // 如果 LLM 回复中没有音乐卡片，尝试从文本提取（支持多首）
-            if (!messageList.value[aiMsgIndex].musicCards?.length) {
-              const songNames = extractRecommendedSongList(fullText, rawQuery)
-              const uniqueNames = [...new Set(songNames)]
-              const songMetas = (await Promise.all(
-                uniqueNames.map(async name => executeMusicSearch(name)),
-              )).filter(Boolean) as MusicCard[]
-              if (songMetas.length) {
-                messageList.value[aiMsgIndex].musicCards = songMetas
-                messageList.value[aiMsgIndex].musicCard = songMetas[0]
-              }
-            }
-
-            // 记录已推荐歌曲（去重）
-            messageList.value[aiMsgIndex].musicCards?.forEach(c => { rememberRecommended(c.name) })
-
-            // 若 LLM 只返回了 tool call、没有文本，则用模板生成 DJ 串词兜底
-            const cards = messageList.value[aiMsgIndex].musicCards
-            const currentText = messageList.value[aiMsgIndex].text
-            if ((!currentText || currentText === '...') && cards?.length) {
-              const intro = buildDjIntroText(mode, weatherStr)
-              const firstCard = cards[0]
-              const commentary = generateDjCommentary(firstCard.name, firstCard.singer, weatherType)
-              const finalText = mode === 'dj'
-                ? `${intro.greeting} ${commentary}`
-                : generateChatRecommendation(rawQuery, firstCard.name, firstCard.singer)
-              messageList.value[aiMsgIndex].text = finalText
-            }
-
-            onSaveSession?.()
-
-            // DJ 模式自动播放首推歌曲
-            if (mode === 'dj' && djSettings.djAutoPlay && cards?.length) {
-              try {
-                await playMusicCard(cards[0])
-              } catch (err) {
-                console.error('DJ 自动播放失败:', err)
-              }
-            }
-
-            // TTS 播报
-            const textToSpeak = messageList.value[aiMsgIndex].text || fullText
-            if (
-              (mode === 'dj' && djSettings.enableDjSpeech) ||
-              (mode === 'chat' && djSettings.enableChatSpeech)
-            ) {
-              try {
-                const audioUrl = await synthesizeSpeech(textToSpeak)
-                playDjSpeech(audioUrl)
-              } catch (err) {
-                console.error('TTS 播报异常:', err)
-              }
+        async onToolCall(toolCall) {
+          if (isStaleGeneration()) return
+          const kw = toolCall.arguments?.keyword || rawQuery
+          const songMeta = await executeMusicSearch(kw)
+          if (songMeta && !isStaleGeneration()) {
+            const currentCards = messageList.value[aiMsgIndex].musicCards || []
+            if (!currentCards.some(c => c.id === songMeta.id)) {
+              messageList.value[aiMsgIndex].musicCards = [...currentCards, songMeta]
+              messageList.value[aiMsgIndex].musicCard = songMeta
             }
           }
-          handleComplete().catch(err => { console.error(err) })
+        },
+        async onComplete(fullText) {
+          if (isStaleGeneration()) return
+          // 剥离 JSON 数据块，只保留纯文案
+          const cleanText = stripJsonBlock(fullText) || stripJsonBlock(messageList.value[aiMsgIndex].text || '')
+          if (cleanText) messageList.value[aiMsgIndex].text = cleanText
+
+          // 如果 LLM 回复中没有音乐卡片，尝试从文本提取（支持多首）
+          if (!messageList.value[aiMsgIndex].musicCards?.length) {
+            const songNames = extractRecommendedSongList(fullText, rawQuery)
+            const uniqueNames = [...new Set(songNames)]
+            const songMetas = (await Promise.all(
+              uniqueNames.map(async name => executeMusicSearch(name)),
+            )).filter(Boolean) as MusicCard[]
+            if (isStaleGeneration()) return
+            if (songMetas.length) {
+              messageList.value[aiMsgIndex].musicCards = songMetas
+              messageList.value[aiMsgIndex].musicCard = songMetas[0]
+            }
+          }
+
+          // 记录已推荐歌曲（去重）
+          messageList.value[aiMsgIndex].musicCards?.forEach(c => { rememberRecommended(c.name) })
+
+          // 若 LLM 只返回了 tool call、没有文本，则用模板生成 DJ 串词兜底
+          const cards = messageList.value[aiMsgIndex].musicCards
+          const currentText = messageList.value[aiMsgIndex].text
+          if ((!currentText || currentText === '...') && cards?.length) {
+            const intro = buildDjIntroText(mode, weatherStr)
+            const firstCard = cards[0]
+            const commentary = generateDjCommentary(firstCard.name, firstCard.singer, weatherType)
+            const finalText = mode === 'dj'
+              ? `${intro.greeting} ${commentary}`
+              : generateChatRecommendation(rawQuery, firstCard.name, firstCard.singer)
+            messageList.value[aiMsgIndex].text = finalText
+          }
+
+          onSaveSession?.()
+
+          // DJ 模式自动播放首推歌曲
+          if (isStaleGeneration()) return
+          if (mode === 'dj' && djSettings.djAutoPlay && cards?.length) {
+            try {
+              await playMusicCard(cards[0])
+            } catch (err) {
+              console.error('DJ 自动播放失败:', err)
+            }
+          }
+
+          // TTS 播报
+          const textToSpeak = messageList.value[aiMsgIndex].text || fullText
+          if (
+            (mode === 'dj' && djSettings.enableDjSpeech) ||
+              (mode === 'chat' && djSettings.enableChatSpeech)
+          ) {
+            try {
+              const audioUrl = await synthesizeSpeech(textToSpeak, { signal })
+              if (isStaleGeneration()) return
+              playDjSpeech(audioUrl)
+            } catch (err) {
+              if (!isAbortError(err)) console.error('TTS 播报异常:', err)
+            }
+          }
         },
         onError(err) {
+          if (isStaleGeneration()) return
+          if (isAbortError(err)) {
+            const currentText = messageList.value[aiMsgIndex]?.text
+            if (!currentText || currentText === '...') {
+              messageList.value[aiMsgIndex].text = '已停止生成'
+            }
+            return
+          }
           messageList.value[aiMsgIndex].text = `服务链接异常: ${err.message}。请在⚙️设置中检查 API Key 与 Endpoint`
+        },
+      },
+      {
+        signal,
+        weatherType,
+        onFoundMusicCard(card: MusicCard) {
+          if (isStaleGeneration()) return
+          const currentCards = messageList.value[aiMsgIndex].musicCards || []
+          if (!currentCards.some(c => c.name === card.name && c.singer === card.singer)) {
+            messageList.value[aiMsgIndex].musicCards = [...currentCards, card]
+            messageList.value[aiMsgIndex].musicCard = card
+          }
         },
       },
     )
@@ -503,6 +654,20 @@ export function useDjChat() {
     resetRecommendedHistory()
   }
 
+  /** 停止当前生成任务 */
+  const stopGeneration = () => {
+    if (!isGenerating.value && !activeGenerationAbortController) return
+    activeGenerationId++
+    activeGenerationAbortController?.abort()
+    activeGenerationAbortController = null
+    isGenerating.value = false
+
+    const lastMsg = messageList.value[messageList.value.length - 1]
+    if (lastMsg?.sender === 'ai' && (!lastMsg.text || lastMsg.text === '...')) {
+      lastMsg.text = '已停止生成'
+    }
+  }
+
   /** 附加标签 */
   const attachFeatureTag = (type: 'search' | 'play') => {
     showPlusMenu.value = false
@@ -536,6 +701,7 @@ export function useDjChat() {
     toggleMusicPlay,
     deleteMessage,
     clearMessages,
+    stopGeneration,
     attachFeatureTag,
     preloadMusicCardCovers,
     executeMusicSearch,
@@ -562,11 +728,12 @@ export const autoContinueRecommend = (): boolean => {
   if (!isDjActive() || isGenerating.value) return false
   if (!djSettings.autoContinue) return false
   if (!moduleSendMessage) return false
+  const weather = getCurrentDjWeatherContext()
   // 静默推荐下一首
   void moduleSendMessage(
     'dj',
-    '晴 22°C',
-    'sunny',
+    weather.text,
+    weather.type,
     undefined,
     { silent: true, query: '请继续推荐下一首好听的音乐' },
   )

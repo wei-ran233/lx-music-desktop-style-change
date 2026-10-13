@@ -1,9 +1,11 @@
-import { getFontSizeWithScreen } from '@renderer/utils'
+import { applyAppScale } from '@renderer/utils'
 import {
+  getWindowStatus,
   minWindow,
   onFocus,
   onSettingChanged,
   onThemeChange,
+  onWindowStatusChanged,
   openDevTools,
   quitApp,
   setFullScreen,
@@ -11,6 +13,7 @@ import {
 } from '@renderer/utils/ipc'
 import {
   isFullscreen,
+  isWindowMaximized,
   themeId,
   themeShouldUseDarkColors,
 } from '@renderer/store'
@@ -69,18 +72,37 @@ const handle_selection = (event: LX.KeyDownEevent) => {
   event.event?.preventDefault()
 }
 
+const applyScale = () => {
+  applyAppScale(appSetting['common.fontSize'], appSetting['common.pageScale'], isFullscreen.value)
+}
+
+const applyWindowStatus = (status: { isFullscreen: boolean, isMaximized: boolean }) => {
+  isFullscreen.value = status.isFullscreen
+  isWindowMaximized.value = status.isMaximized
+}
+
+const applyWindowFrameState = () => {
+  const edgeToEdge = isFullscreen.value || isWindowMaximized.value
+  const transparentClass = window.dt ? 'disableTransparent' : 'transparent'
+
+  document.documentElement.classList.toggle('fullscreen', isFullscreen.value)
+  document.documentElement.classList.toggle('maximized', isWindowMaximized.value)
+  if (edgeToEdge) {
+    document.documentElement.classList.remove(transparentClass)
+  } else {
+    document.documentElement.classList.add(transparentClass)
+  }
+  applyScale()
+}
+
+let resizeRaf = 0
+const handleWindowResize = () => {
+  cancelAnimationFrame(resizeRaf)
+  resizeRaf = requestAnimationFrame(applyScale)
+}
+
 export default () => {
-  watch(isFullscreen, val => {
-    if (val) {
-      document.documentElement.classList.remove(window.dt ? 'disableTransparent' : 'transparent')
-      document.documentElement.classList.add('fullscreen')
-      document.documentElement.style.fontSize = `${getFontSizeWithScreen(window.screen.width)}px`
-    } else {
-      document.documentElement.classList.remove('fullscreen')
-      document.documentElement.classList.add(window.dt ? 'disableTransparent' : 'transparent')
-      document.documentElement.style.fontSize = `${appSetting['common.fontSize']}px`
-    }
-  }, {
+  watch([isFullscreen, isWindowMaximized], applyWindowFrameState, {
     immediate: true,
   })
 
@@ -122,6 +144,11 @@ export default () => {
     })
   })
 
+  const rWindowStatusChanged = onWindowStatusChanged(({ params: status }) => {
+    applyWindowStatus(status)
+  })
+  void getWindowStatus().then(applyWindowStatus)
+
   window.key_event.on(HOTKEY_COMMON.min.action, minWindow)
   window.key_event.on(HOTKEY_COMMON.hide_toggle.action, showHideWindowToggle)
   window.key_event.on(HOTKEY_COMMON.close.action, quitApp)
@@ -131,6 +158,7 @@ export default () => {
   window.key_event.on('key_f11_down', handle_fullscreen)
   window.key_event.on('key_mod+a_down', handle_selection)
   document.body.addEventListener('click', handleBodyClick, true)
+  window.addEventListener('resize', handleWindowResize)
 
   onBeforeUnmount(() => {
     window.key_event.off(HOTKEY_COMMON.min.action, minWindow)
@@ -142,8 +170,11 @@ export default () => {
     window.key_event.off('key_f11_down', handle_fullscreen)
     window.key_event.off('key_mod+a_down', handle_selection)
     document.body.removeEventListener('click', handleBodyClick)
+    window.removeEventListener('resize', handleWindowResize)
+    cancelAnimationFrame(resizeRaf)
     rSetConfig()
     rFocus()
     rThemeChange()
+    rWindowStatusChanged()
   })
 }

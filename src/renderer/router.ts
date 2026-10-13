@@ -65,7 +65,7 @@ const router = createRouter({
     {
       path: '/dj',
       name: 'Dj',
-      component: require('./views/Dj/index.vue').default,
+      component: async() => import(/* webpackChunkName: "view-dj" */ './views/Dj/index.vue'),
       meta: {
         name: 'Dj',
       },

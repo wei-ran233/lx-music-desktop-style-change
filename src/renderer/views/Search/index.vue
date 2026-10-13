@@ -124,6 +124,7 @@ export default {
 .container {
   display: flex;
   flex-flow: column nowrap;
+  min-width: 0;
 }
 
 .header {
@@ -132,11 +133,22 @@ export default {
   display: flex;
   flex-flow: row nowrap;
   justify-content: space-between;
+  min-width: 0;
+  gap: 8px;
 }
 
 .main {
   position: relative;
   flex: auto;
+  min-width: 0;
   // min-height: 0;
+}
+
+@media (max-width: 920px) {
+  .header {
+    flex-flow: column nowrap;
+    align-items: stretch;
+    padding-top: 2px;
+  }
 }
 </style>

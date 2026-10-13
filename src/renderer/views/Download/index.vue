@@ -286,6 +286,7 @@ export default {
   display: flex;
   flex-flow: column nowrap;
   flex: auto;
+  min-width: 0;
 }
 
 .noItem {
@@ -299,6 +300,29 @@ export default {
   p {
     font-size: 24px;
     color: var(--color-font-label);
+  }
+}
+
+@media (max-width: 920px) {
+  .download {
+    :global(.thead th:nth-child(4)),
+    :global(.thead th:nth-child(5)),
+    :global(.list-item-cell:nth-child(4)),
+    :global(.list-item-cell:nth-child(5)) {
+      display: none;
+    }
+
+    :global(.thead th:nth-child(3)),
+    :global(.list-item-cell:nth-child(3)) {
+      width: auto !important;
+      flex: 0 0 28% !important;
+    }
+
+    :global(.thead th:nth-child(6)),
+    :global(.list-item-cell:nth-child(6)) {
+      width: auto !important;
+      flex: 0 0 20% !important;
+    }
   }
 }
 

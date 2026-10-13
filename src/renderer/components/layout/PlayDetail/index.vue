@@ -148,7 +148,7 @@ export default {
   z-index: 10;
   // -webkit-app-region: drag;
   overflow: hidden;
-  border-radius: @radius-border;
+  border-radius: var(--radius-sm);
   color: var(--color-font);
   // border-left: 12px solid var(--color-primary-alpha-900);
   -webkit-app-region: no-drag;

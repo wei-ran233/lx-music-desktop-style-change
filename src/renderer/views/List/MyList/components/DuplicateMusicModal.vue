@@ -41,7 +41,7 @@ import { playList } from '@renderer/core/player'
 import { getListMusics, removeListMusics } from '@renderer/store/list/action'
 import { isFullscreen } from '@renderer/store'
 import { appSetting } from '@renderer/store/setting'
-import { getFontSizeWithScreen } from '@renderer/utils'
+import { getEffectiveFontSize } from '@renderer/utils'
 import { LIST_IDS } from '@common/constants'
 import { useI18n } from '@root/lang'
 
@@ -61,7 +61,7 @@ export default {
     const t = useI18n()
     const duplicateList = ref([])
     const listItemHeight = computed(() => {
-      return Math.ceil((isFullscreen.value ? getFontSizeWithScreen() : appSetting['common.fontSize']) * 3.2)
+      return Math.ceil(getEffectiveFontSize(appSetting['common.fontSize'], appSetting['common.pageScale'], isFullscreen.value) * 3.2)
     })
 
     const handlePlay = (index) => {

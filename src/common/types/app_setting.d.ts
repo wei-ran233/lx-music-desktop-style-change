@@ -19,6 +19,11 @@ declare global {
       'common.fontSize': number
 
       /**
+       * 页面缩放比例
+       */
+      'common.pageScale': number
+
+      /**
        * 是否以全屏启动
        */
       'common.startInFullscreen': boolean

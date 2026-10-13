@@ -204,22 +204,26 @@ export default {
 .container {
   position: relative;
   width: 35%;
-  height: @height-toolbar * 0.52;
+  min-width: 160px;
+  height: var(--layout-search-height);
   -webkit-app-region: no-drag;
 }
 
 .search {
   position: absolute;
   width: 100%;
-  border-radius: @form-radius;
-  transition: box-shadow .4s ease, background-color @transition-normal;
+  border-radius: var(--radius-pill);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: box-shadow .4s ease, background-color @transition-normal, border-radius @transition-fast;
   display: flex;
   flex-flow: column nowrap;
   background-color: var(--color-primary-light-300-alpha-700);
 
   &.active {
     background-color: var(--color-primary-light-600-alpha-100);
-    box-shadow: 0 1px 5px 0 rgba(0,0,0,.2);
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: 0 0 0 2px var(--color-primary-alpha-300), 0 1px 5px 0 rgba(0,0,0,.2);
     .form {
       input {
         border-bottom-left-radius: 0;
@@ -232,13 +236,13 @@ export default {
   }
   .form {
     display: flex;
-    height: @height-toolbar * 0.52;
+    height: var(--layout-search-height);
     position: relative;
     input {
       flex: auto;
       // border: 1px solid;
-      border-top-left-radius: 3px;
-      border-bottom-left-radius: 3px;
+      border-top-left-radius: var(--radius-pill);
+      border-bottom-left-radius: var(--radius-pill);
       background-color: transparent;
       // border-bottom: 2px solid var(--color-primary);
       // border-color: var(--color-primary);
@@ -250,7 +254,7 @@ export default {
       padding: 0 5px;
       overflow: hidden;
       font-size: 13.5px;
-      line-height: @height-toolbar * 0.52 + 5px;
+      line-height: calc(var(--layout-search-height) + 5px);
       &::placeholder {
         color: var(--color-button-font);
         font-size: .98em;
@@ -269,8 +273,8 @@ export default {
       transition: background-color .2s ease;
 
       &:last-child {
-        border-top-right-radius: 3px;
-        border-bottom-right-radius: 3px;
+        border-top-right-radius: var(--radius-pill);
+        border-bottom-right-radius: var(--radius-pill);
       }
 
       &:hover {
@@ -301,8 +305,8 @@ export default {
         background-color: var(--color-primary-dark-100-alpha-700);
       }
       &:last-child {
-        border-bottom-left-radius: 3px;
-        border-bottom-right-radius: 3px;
+        border-bottom-left-radius: var(--radius-sm);
+        border-bottom-right-radius: var(--radius-sm);
       }
     }
   }
@@ -318,6 +322,13 @@ export default {
     button {
       padding: 6px 10px;
     }
+  }
+}
+
+@media (max-width: 920px) {
+  .container {
+    width: min(64%, 360px);
+    min-width: 130px;
   }
 }
 

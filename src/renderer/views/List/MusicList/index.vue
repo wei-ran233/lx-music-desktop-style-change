@@ -980,6 +980,7 @@ export default {
   overflow: hidden;
   height: 100%;
   flex: auto;
+  min-width: 0;
   display: flex;
   flex-flow: column nowrap;
 
@@ -1045,15 +1046,15 @@ export default {
   flex: none;
   display: flex;
   align-items: flex-start;
-  padding: 16px 20px;
+  padding: var(--space-content-y) var(--space-content-x);
   background: var(--color-content-background);
   border-bottom: 1px solid var(--color-primary-light-900-alpha-150);
 }
 
 .bannerCover {
   flex: none;
-  width: 110px;
-  height: 110px;
+  width: clamp(72px, 8vw, 110px);
+  height: clamp(72px, 8vw, 110px);
   border-radius: 8px;
   background-position: center;
   background-size: cover;
@@ -1061,7 +1062,7 @@ export default {
   position: relative;
   overflow: hidden;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  margin-right: 18px;
+  margin-right: var(--space-content-x);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -1090,7 +1091,7 @@ export default {
   display: flex;
   flex-direction: column;
   justify-content: space-between;
-  min-height: 110px;
+  min-height: clamp(72px, 8vw, 110px);
 }
 
 .bannerTitleRow {
@@ -1142,6 +1143,7 @@ export default {
 .bannerActionsRow {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -1188,9 +1190,10 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 20px;
+  padding: calc(var(--space-content-y) * .67) var(--space-content-x);
   background: var(--color-content-background);
   border-bottom: 1px solid var(--color-primary-light-900-alpha-150);
+  gap: 10px;
 }
 
 .subHeaderTabs {
@@ -1230,6 +1233,9 @@ export default {
 .subHeaderTools {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
+  min-width: 0;
+  justify-content: flex-end;
   gap: 10px;
 }
 
@@ -1258,6 +1264,8 @@ export default {
 .filterBadgeBox {
   display: flex;
   align-items: center;
+  min-width: 0;
+  max-width: 100%;
   gap: 8px;
   background-color: var(--color-primary-light-900-alpha-100);
   border: 1px solid var(--color-primary-light-900-alpha-200);
@@ -1269,6 +1277,7 @@ export default {
 .filterBadgeLabel {
   color: var(--color-font);
   font-weight: 500;
+  .mixin-ellipsis-1();
 }
 
 .createListFromFilterBtn {
@@ -1294,7 +1303,7 @@ export default {
   background: var(--color-primary-light-900-alpha-100);
   border-radius: 16px;
   padding: 2px 10px;
-  width: 140px;
+  width: clamp(128px, 18vw, 190px);
 }
 
 .searchIcon {
@@ -1331,14 +1340,16 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 10px 20px;
+  padding: calc(var(--space-content-y) * .84) var(--space-content-x);
   background: var(--color-content-background);
   border-bottom: 1px solid var(--color-primary-light-900-alpha-150);
+  gap: 10px;
 }
 
 .batchActionLeft {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 12px;
 }
 
@@ -1372,6 +1383,7 @@ export default {
   display: flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
   transition: background-color 0.2s ease;
 
   &:hover:not(:disabled) {
@@ -1381,6 +1393,59 @@ export default {
   &:disabled {
     opacity: 0.45;
     cursor: not-allowed;
+  }
+}
+
+@media (max-width: 920px) {
+  .headerBanner {
+    align-items: center;
+    padding: 8px 12px;
+  }
+
+  .bannerCover {
+    width: 64px;
+    height: 64px;
+    margin-right: 12px;
+  }
+
+  .bannerMain {
+    min-height: 64px;
+  }
+
+  .bannerMetaRow,
+  .bannerTagsRow {
+    display: none;
+  }
+
+  .bannerTitle {
+    font-size: 15px;
+  }
+
+  .bannerActionsRow {
+    gap: 6px;
+  }
+
+  .primaryRedBtn,
+  .secondaryBtn,
+  .batchBtn {
+    padding: 4px 8px;
+  }
+
+  .listSubHeader {
+    align-items: flex-start;
+    flex-flow: column nowrap;
+    padding: 6px 12px;
+  }
+
+  .subHeaderTools {
+    width: 100%;
+    justify-content: flex-start;
+  }
+
+  .batchActionBar {
+    align-items: flex-start;
+    flex-flow: column nowrap;
+    padding: 8px 12px;
   }
 }
 

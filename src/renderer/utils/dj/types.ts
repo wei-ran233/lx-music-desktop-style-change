@@ -46,6 +46,8 @@ export interface MusicCard {
 export interface ChatMessage {
   sender: MessageSender
   text: string
+  thinkingText?: string
+  isThinkingFolded?: boolean
   musicCards?: MusicCard[]
   musicCard?: MusicCard
 }
@@ -107,8 +109,10 @@ export interface ToolCall {
 /** 流式回调 */
 export interface StreamCallbacks {
   onToken: (token: string) => void
-  onToolCall?: (toolCall: ToolCall) => void
-  onComplete: (fullText: string, toolCall?: ToolCall) => void
+  onThinkingDelta?: (token: string) => void
+  onThinkingEnd?: () => void
+  onToolCall?: (toolCall: ToolCall) => void | Promise<void>
+  onComplete: (fullText: string, toolCall?: ToolCall) => void | Promise<void>
   onError: (error: Error) => void
 }
 
@@ -148,6 +152,10 @@ export interface DjSettingsState {
   concurrencyLimit: number
   activeModelId: string
   modelList: ModelPreset[]
+
+  localAiType?: 'ollama' | 'lmstudio' | 'custom'
+  localAiHost?: string
+  localAiModel?: string
 
   djPromptRole: string
   djPromptOpening: string

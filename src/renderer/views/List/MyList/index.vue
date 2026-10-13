@@ -274,7 +274,8 @@ export default {
 @lists-item-height: 36px;
 .lists {
   flex: none;
-  width: 16%;
+  width: var(--layout-list-pane-width);
+  min-width: 0;
   display: flex;
   flex-flow: column nowrap;
 }

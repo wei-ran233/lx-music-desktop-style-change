@@ -26,7 +26,7 @@
           <use xlink:href="#icon-prevMusic" />
         </svg>
       </div>
-      <div :class="$style.playBtn" :aria-label="isPlay ? $t('player__pause') : $t('player__play')" @click="togglePlay">
+      <div :class="[$style.playBtn, $style.playMain]" :aria-label="isPlay ? $t('player__pause') : $t('player__play')" @click="togglePlay">
         <svg v-if="isPlay" version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" height="100%" viewBox="0 0 1024 1024" space="preserve">
           <use xlink:href="#icon-pause" />
         </svg>
@@ -150,7 +150,7 @@ export default {
 
 .player {
   position: relative;
-  height: @height-player;
+  height: var(--layout-player-height);
   border-top: 1px solid var(--color-primary-alpha-900);
   box-sizing: border-box;
   display: flex;
@@ -200,19 +200,19 @@ export default {
   //   fill: currentColor;
   // }
   img {
-    box-shadow: 0 0 2px rgba(0, 0, 0, 0.3);
+    box-shadow: var(--shadow-sm);
     max-width: 100%;
     max-height: 100%;
     transition: @transition-normal;
     transition-property: border-color;
     // border-radius: 50%;
-    border-radius: @radius-border;
+    border-radius: var(--radius-sm);
     // border: 2px solid @color-theme_2-background_1;
   }
 
   .emptyPic {
     background-color: var(--color-primary-light-900-alpha-200);
-    border-radius: @radius-border;
+    border-radius: var(--radius-sm);
     width: 100%;
     height: 100%;
     display: flex;
@@ -278,10 +278,14 @@ export default {
   margin: 0 8px;
   padding: 8px 0;
   // height: 15px;
-  // .progressBar {
-  //   height: 4px;
-  //   // border-radius: 0;
-  // }
+  .progressBar {
+    height: 4px;
+    border-radius: 2px;
+    transition: height var(--transition-fast);
+  }
+  &:hover .progressBar {
+    height: 7px;
+  }
 }
 .time {
   display: flex;
@@ -319,6 +323,30 @@ export default {
   }
   &:active {
     opacity: 0.6;
+  }
+}
+
+.playMain {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  background-color: var(--color-primary-alpha-100);
+  box-shadow: var(--shadow-sm);
+  color: var(--color-main-background);
+
+  svg {
+    height: 50%;
+    filter: none;
+  }
+  &:hover {
+    opacity: 1;
+    box-shadow: var(--shadow-md);
+  }
+  &:active {
+    opacity: .85;
   }
 }
 

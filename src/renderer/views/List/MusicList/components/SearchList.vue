@@ -229,15 +229,18 @@ export default {
   transform: translateX(-50%);
   top: 20px;
   width: 45%;
-  height: @height-toolbar * 0.52;
+  min-width: 180px;
+  height: var(--layout-search-height);
   z-index: 99;
 }
 
 .search {
   position: absolute;
   width: 100%;
-  border-radius: 4px;
-  transition: box-shadow .4s ease, background-color @transition-normal;
+  border-radius: var(--radius-pill);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  transition: box-shadow .4s ease, background-color @transition-normal, border-radius @transition-fast;
   display: flex;
   flex-flow: column nowrap;
   background-color: var(--color-primary-light-600-alpha-100);
@@ -249,6 +252,14 @@ export default {
                 0 32px 64px rgba(0,0,0,0.07);
 
   &.active {
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    box-shadow: 0 0 0 2px var(--color-primary-alpha-300),
+                0 1px 2px rgba(0,0,0,0.07),
+                0 2px 4px rgba(0,0,0,0.07),
+                0 4px 8px rgba(0,0,0,0.07),
+                0 8px 16px rgba(0,0,0,0.07),
+                0 16px 32px rgba(0,0,0,0.07),
+                0 32px 64px rgba(0,0,0,0.07);
     .form {
       input {
         border-bottom-left-radius: 0;
@@ -261,13 +272,13 @@ export default {
   }
   .form {
     display: flex;
-    height: @height-toolbar * 0.52;
+    height: var(--layout-search-height);
     position: relative;
     input {
       flex: auto;
       // border: 1px solid;
-      border-top-left-radius: 4px;
-      border-bottom-left-radius: 4px;
+      border-top-left-radius: var(--radius-pill);
+      border-bottom-left-radius: var(--radius-pill);
       background-color: transparent;
       // border-bottom: 2px solid var(--color-primary);
       // border-color: var(--color-primary);
@@ -278,7 +289,7 @@ export default {
       padding: 0 5px;
       overflow: hidden;
       font-size: 13.5px;
-      line-height: @height-toolbar * 0.52 + 5px;
+      line-height: calc(var(--layout-search-height) + 5px);
       &::placeholder {
         color: var(--color-button-font);
         font-size: .98em;
@@ -290,8 +301,8 @@ export default {
       // background-color: @color-search-form-background;
       background-color: transparent;
       outline: none;
-      border-top-right-radius: 4px;
-      border-bottom-right-radius: 4px;
+      border-top-right-radius: var(--radius-pill);
+      border-bottom-right-radius: var(--radius-pill);
       cursor: pointer;
       height: 100%;
       padding: 6px 9px;
@@ -329,7 +340,7 @@ export default {
       &.select {
         background-color: var(--color-primary-dark-100-alpha-700);
       }
-      border-radius: 4px;
+      border-radius: var(--radius-xs);
       // &:last-child {
       //   border-bottom-left-radius: 4px;
       //   border-bottom-right-radius: 4px;
@@ -359,6 +370,13 @@ export default {
   align-items: center;
   // transform: rotate(45deg);
   // background-color:
+}
+
+@media (max-width: 920px) {
+  .container {
+    width: calc(100% - 24px);
+    min-width: 0;
+  }
 }
 
 </style>

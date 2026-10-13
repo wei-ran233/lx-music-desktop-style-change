@@ -24,6 +24,72 @@ export type TtsEngine =
   | 'volcengine-tts'
   | 'custom-tts'
 
+const TTS_HTTP_TIMEOUT_MS = 20000
+const MAX_TTS_TEXT_LENGTH = 1200
+
+interface SynthesizeSpeechOptions {
+  signal?: AbortSignal
+}
+
+const createAbortError = (): Error => {
+  const err = new Error('TTS request aborted')
+  err.name = 'AbortError'
+  return err
+}
+
+const isAbortError = (err: unknown): boolean => {
+  return !!err && typeof err === 'object' && (err as Error).name === 'AbortError'
+}
+
+const throwIfAborted = (signal?: AbortSignal) => {
+  if (signal?.aborted) throw createAbortError()
+}
+
+const createTimedSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const handleParentAbort = () => {
+    controller.abort()
+  }
+
+  if (parentSignal?.aborted) {
+    controller.abort()
+  } else {
+    parentSignal?.addEventListener('abort', handleParentAbort, { once: true })
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup() {
+      clearTimeout(timer)
+      parentSignal?.removeEventListener('abort', handleParentAbort)
+    },
+    isTimeout() {
+      return timedOut
+    },
+  }
+}
+
+const fetchWithTimeout = async(url: string, init: RequestInit, signal?: AbortSignal): Promise<Response> => {
+  throwIfAborted(signal)
+  const timedSignal = createTimedSignal(TTS_HTTP_TIMEOUT_MS, signal)
+  try {
+    return await fetch(url, {
+      ...init,
+      signal: timedSignal.signal,
+    })
+  } catch (err) {
+    if (isAbortError(err) && !timedSignal.isTimeout()) throw createAbortError()
+    throw err
+  } finally {
+    timedSignal.cleanup()
+  }
+}
+
 /**
  * 清理文本，去除 Emoji、Markdown 标记与方括号标签
  */
@@ -63,29 +129,33 @@ const fallbackSpeech = (text: string): string => {
 // ─── 各渠道实现 ──────────────────────────────────────────
 
 /** 1. OpenAI TTS */
-const synthesizeOpenAI = async(text: string): Promise<string | null> => {
+const synthesizeOpenAI = async(text: string, signal?: AbortSignal): Promise<string | null> => {
   const apiKey = djSettings.ttsApiKey || djSettings.apiKey
   if (!apiKey) return null
 
-  const response = await fetch('https://api.openai.com/v1/audio/speech', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${apiKey}`,
+  const response = await fetchWithTimeout(
+    'https://api.openai.com/v1/audio/speech',
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${apiKey}`,
+      },
+      body: JSON.stringify({
+        model: 'tts-1',
+        input: text,
+        voice: 'alloy',
+      }),
     },
-    body: JSON.stringify({
-      model: 'tts-1',
-      input: text,
-      voice: 'alloy',
-    }),
-  })
+    signal,
+  )
 
   if (!response.ok) throw new Error(`OpenAI TTS Status ${response.status}`)
   return blobToUrl(await response.blob())
 }
 
 /** 2. Azure 神经语音 REST API */
-const synthesizeAzure = async(text: string, voice: string): Promise<string | null> => {
+const synthesizeAzure = async(text: string, voice: string, signal?: AbortSignal): Promise<string | null> => {
   const apiKey = djSettings.ttsApiKey || djSettings.apiKey
   const region = djSettings.ttsRegion || 'eastasia'
   if (!apiKey) return null
@@ -101,16 +171,20 @@ const synthesizeAzure = async(text: string, voice: string): Promise<string | nul
     '</speak>',
   ].join('')
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/ssml+xml',
-      'X-Microsoft-OutputFormat': 'audio-24khz-96kbitrate-mono-mp3',
-      'Ocp-Apim-Subscription-Key': apiKey,
-      'User-Agent': 'lx-music-desktop',
+  const response = await fetchWithTimeout(
+    endpoint,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/ssml+xml',
+        'X-Microsoft-OutputFormat': 'audio-24khz-96kbitrate-mono-mp3',
+        'Ocp-Apim-Subscription-Key': apiKey,
+        'User-Agent': 'lx-music-desktop',
+      },
+      body: ssml,
     },
-    body: ssml,
-  })
+    signal,
+  )
 
   if (!response.ok) throw new Error(`Azure TTS Status ${response.status}`)
   return blobToUrl(await response.blob())
@@ -124,11 +198,12 @@ const hmacSha256 = async(key: string, message: string): Promise<ArrayBuffer> => 
 }
 
 /** 3. 讯飞 WebSocket TTS */
-const synthesizeIflytek = async(text: string, voice: string): Promise<string | null> => {
+const synthesizeIflytek = async(text: string, voice: string, signal?: AbortSignal): Promise<string | null> => {
   const appId = djSettings.ttsAppId
   const apiKey = djSettings.ttsApiKey
   const apiSecret = djSettings.ttsCustomUrl // 复用 customUrl 存 ApiSecret
   if (!appId || !apiKey || !apiSecret) return null
+  throwIfAborted(signal)
 
   const host = 'tts-api.xfyun.cn'
   const date = new Date().toUTCString()
@@ -140,29 +215,72 @@ const synthesizeIflytek = async(text: string, voice: string): Promise<string | n
   const authorization = btoa(authorizationOrigin)
 
   const url = `wss://${host}/v2/tts?authorization=${authorization}&date=${encodeURIComponent(date)}&host=${host}`
+  throwIfAborted(signal)
 
   return new Promise((resolve, reject) => {
-    let ws: WebSocket
+    let ws: WebSocket | null = null
+    let timer: ReturnType<typeof setTimeout> | null = null
+    let settled = false
+    const audioChunks: Uint8Array[] = []
+    let handleAbort = () => {}
+
+    const cleanup = () => {
+      if (timer) {
+        clearTimeout(timer)
+        timer = null
+      }
+      signal?.removeEventListener('abort', handleAbort)
+    }
+
+    const closeSocket = () => {
+      try { ws?.close() } catch { /* ignore */ }
+    }
+
+    const rejectOnce = (err: unknown) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      closeSocket()
+      reject(err instanceof Error ? err : new Error(String(err)))
+    }
+
+    const resolveOnce = (audioUrl: string) => {
+      if (settled) return
+      settled = true
+      cleanup()
+      closeSocket()
+      resolve(audioUrl)
+    }
+
+    handleAbort = () => {
+      rejectOnce(createAbortError())
+    }
+
+    if (signal?.aborted) {
+      rejectOnce(createAbortError())
+      return
+    }
+    signal?.addEventListener('abort', handleAbort, { once: true })
+
     try {
       ws = new WebSocket(url)
     } catch (err) {
-      reject(err)
+      rejectOnce(err)
       return
     }
 
-    const audioChunks: Uint8Array[] = []
-    let settled = false
+    const socket = ws
 
-    const timer = setTimeout(() => {
-      if (!settled) {
-        settled = true
-        try { ws.close() } catch { /* ignore */ }
-        reject(new Error('讯飞 TTS 超时'))
-      }
+    timer = setTimeout(() => {
+      rejectOnce(new Error('Iflytek TTS timeout'))
     }, 15000)
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
+    socket.onopen = () => {
+      if (signal?.aborted) {
+        rejectOnce(createAbortError())
+        return
+      }
+      socket.send(JSON.stringify({
         common: { app_id: appId },
         business: {
           aue: 'lame',
@@ -178,14 +296,11 @@ const synthesizeIflytek = async(text: string, voice: string): Promise<string | n
       }))
     }
 
-    ws.onmessage = (event) => {
+    socket.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data)
         if (data.code !== 0) {
-          settled = true
-          clearTimeout(timer)
-          reject(new Error(`讯飞 TTS 错误: ${data.message || data.code}`))
-          ws.close()
+          rejectOnce(new Error(`Iflytek TTS error: ${data.message || data.code}`))
           return
         }
         if (data.data?.audio) {
@@ -195,9 +310,6 @@ const synthesizeIflytek = async(text: string, voice: string): Promise<string | n
           audioChunks.push(bytes)
         }
         if (data.data?.status === 2) {
-          settled = true
-          clearTimeout(timer)
-          ws.close()
           const merged = new Uint8Array(audioChunks.reduce((sum, c) => sum + c.length, 0))
           let offset = 0
           for (const chunk of audioChunks) {
@@ -205,30 +317,25 @@ const synthesizeIflytek = async(text: string, voice: string): Promise<string | n
             offset += chunk.length
           }
           const blob = new Blob([merged], { type: 'audio/mpeg' })
-          resolve(blobToUrl(blob))
+          resolveOnce(blobToUrl(blob))
         }
       } catch (err) {
-        settled = true
-        clearTimeout(timer)
-        reject(err)
-        ws.close()
+        rejectOnce(err)
       }
     }
 
-    ws.onerror = () => {
-      settled = true
-      clearTimeout(timer)
-      reject(new Error('讯飞 TTS 连接失败'))
+    socket.onerror = () => {
+      rejectOnce(new Error('Iflytek TTS connection failed'))
     }
 
-    ws.onclose = () => {
-      clearTimeout(timer)
+    socket.onclose = () => {
+      if (!settled) rejectOnce(new Error('Iflytek TTS connection closed'))
     }
   })
 }
 
 /** 4. 火山引擎 TTS HTTP API */
-const synthesizeVolcengine = async(text: string, voice: string): Promise<string | null> => {
+const synthesizeVolcengine = async(text: string, voice: string, signal?: AbortSignal): Promise<string | null> => {
   const appId = djSettings.ttsAppId
   const accessToken = djSettings.ttsApiKey
   if (!appId || !accessToken) return null
@@ -236,19 +343,23 @@ const synthesizeVolcengine = async(text: string, voice: string): Promise<string 
   const endpoint = 'https://openspeech.bytedance.com/api/v1/tts'
   const cluster = 'volcano_tts'
 
-  const response = await fetch(endpoint, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer;${accessToken}`,
+  const response = await fetchWithTimeout(
+    endpoint,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer;${accessToken}`,
+      },
+      body: JSON.stringify({
+        app: { appid: appId, token: 'access_token', cluster },
+        user: { uid: 'lx-music' },
+        audio: { voice_type: voice || 'BV001_streaming', encoding: 'mp3', speed_ratio: djSettings.ttsSpeed },
+        request: { reqid: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text, operation: 'query' },
+      }),
     },
-    body: JSON.stringify({
-      app: { appid: appId, token: 'access_token', cluster },
-      user: { uid: 'lx-music' },
-      audio: { voice_type: voice || 'BV001_streaming', encoding: 'mp3', speed_ratio: djSettings.ttsSpeed },
-      request: { reqid: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, text, operation: 'query' },
-    }),
-  })
+    signal,
+  )
 
   if (!response.ok) throw new Error(`火山 TTS Status ${response.status}`)
   const data = await response.json()
@@ -264,22 +375,26 @@ const synthesizeVolcengine = async(text: string, voice: string): Promise<string 
 }
 
 /** 5. 自定义 WebAPI */
-const synthesizeCustom = async(text: string): Promise<string | null> => {
+const synthesizeCustom = async(text: string, signal?: AbortSignal): Promise<string | null> => {
   if (!djSettings.ttsCustomUrl) return null
-  const response = await fetch(djSettings.ttsCustomUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${djSettings.ttsApiKey}`,
+  const response = await fetchWithTimeout(
+    djSettings.ttsCustomUrl,
+    {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${djSettings.ttsApiKey}`,
+      },
+      body: JSON.stringify({
+        text,
+        voice: djSettings.ttsVoice,
+        lang: djSettings.ttsLang,
+        speed: djSettings.ttsSpeed,
+        pitch: djSettings.ttsPitch,
+      }),
     },
-    body: JSON.stringify({
-      text,
-      voice: djSettings.ttsVoice,
-      lang: djSettings.ttsLang,
-      speed: djSettings.ttsSpeed,
-      pitch: djSettings.ttsPitch,
-    }),
-  })
+    signal,
+  )
 
   if (!response.ok) throw new Error(`自定义 TTS Status ${response.status}`)
   return blobToUrl(await response.blob())
@@ -291,10 +406,12 @@ const synthesizeCustom = async(text: string): Promise<string | null> => {
  * 将文本转为 TTS 语音 URL 或 speech: 格式
  * 返回的字符串由 playDjSpeech 消费
  */
-export const synthesizeSpeech = async(text: string): Promise<string> => {
+export const synthesizeSpeech = async(text: string, options: SynthesizeSpeechOptions = {}): Promise<string> => {
   const engine: TtsEngine = djSettings.ttsEngine || 'web-speech'
   const voice = djSettings.ttsVoice || 'zh-CN-XiaoxiaoNeural'
-  const cleanText = cleanTextForSpeech(text)
+  const signal = options.signal
+  const cleanText = cleanTextForSpeech(text).slice(0, MAX_TTS_TEXT_LENGTH)
+  throwIfAborted(signal)
 
   if (!cleanText) {
     throw new Error('TTS 转换文本为空')
@@ -305,36 +422,40 @@ export const synthesizeSpeech = async(text: string): Promise<string> => {
 
     switch (engine) {
       case 'web-speech':
+        throwIfAborted(signal)
         return fallbackSpeech(cleanText)
 
       case 'youdao-tts':
+        throwIfAborted(signal)
         return toYoudaoUrl(cleanText)
 
       case 'openai-tts':
-        url = await synthesizeOpenAI(cleanText)
+        url = await synthesizeOpenAI(cleanText, signal)
         break
 
       case 'azure-tts':
-        url = await synthesizeAzure(cleanText, voice)
+        url = await synthesizeAzure(cleanText, voice, signal)
         break
 
       case 'iflytek-tts':
-        url = await synthesizeIflytek(cleanText, voice)
+        url = await synthesizeIflytek(cleanText, voice, signal)
         break
 
       case 'volcengine-tts':
-        url = await synthesizeVolcengine(cleanText, voice)
+        url = await synthesizeVolcengine(cleanText, voice, signal)
         break
 
       case 'custom-tts':
-        url = await synthesizeCustom(cleanText)
+        url = await synthesizeCustom(cleanText, signal)
         break
     }
 
     if (url) return url
   } catch (err) {
+    if (isAbortError(err)) throw createAbortError()
     console.warn(`[TTS] ${engine} 失败，降级到 Web Speech:`, err)
   }
 
+  throwIfAborted(signal)
   return fallbackSpeech(cleanText)
 }

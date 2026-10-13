@@ -4,6 +4,11 @@ import type { DjSettingsState, ModelPreset, ProfileLogItem, HistoryItem } from '
 const SETTINGS_STORAGE_KEY = 'lx_ai_dj_settings_v1'
 const LOGS_STORAGE_KEY = 'lx_ai_dj_logs_v1'
 const HISTORY_STORAGE_KEY = 'lx_ai_dj_history_v1'
+const MAX_HISTORY_ITEMS = 50
+const MAX_HISTORY_MESSAGES = 80
+const MAX_MESSAGE_TEXT_LENGTH = 4000
+const MAX_MUSIC_CARDS_PER_MESSAGE = 6
+const MAX_PROFILE_LOGS = 50
 
 const defaultModelList: ModelPreset[] = [
   {
@@ -45,7 +50,11 @@ const defaultSettings: DjSettingsState = {
 
   concurrencyLimit: 3,
   activeModelId: 'openai-compatible',
-  modelList: defaultModelList,
+  modelList: defaultModelList.map(m => ({ ...m })),
+
+  localAiType: 'ollama',
+  localAiHost: 'http://127.0.0.1:11434',
+  localAiModel: '',
 
   djPromptRole: '你是一名拥有丰富音乐知识与极客精神的专业电台音乐 DJ。你的声音性感优雅，性格热情幽默且充满都市感。你不仅精通各种音乐类型（如 R&B、CityPop、爵士、摇滚、纯音乐），还能通过富有感染力的语言将音乐与用户当前的环境相连接。',
   djPromptOpening: '结合用户所在城市的天气（如晴天、雨天、阴天、雪天）、实时时间段（早晨唤醒、午后茶歇、傍晚通勤、深夜电台）以及气温，生成极具仪式感与氛围感的广播频道开场白。',
@@ -80,16 +89,100 @@ const defaultSettings: DjSettingsState = {
   city: '北京',
 }
 
+const limitText = (value: unknown, maxLength: number): string => {
+  if (typeof value !== 'string') return ''
+  return value.length > maxLength ? value.slice(0, maxLength) : value
+}
+
+const normalizeMusicCard = (card: any) => {
+  if (!card || typeof card !== 'object') return undefined
+  const name = limitText(card.name, 200)
+  if (!name) return undefined
+  return {
+    name,
+    singer: limitText(card.singer, 200),
+    reason: limitText(card.reason, 500),
+    pic: limitText(card.pic, 1000),
+    source: limitText(card.source, 50),
+    id: typeof card.id === 'string' || typeof card.id === 'number' ? card.id : undefined,
+  }
+}
+
+const normalizeMessage = (message: any) => {
+  if (!message || typeof message !== 'object') return null
+  const sender = message.sender === 'user' ? 'user' : message.sender === 'ai' ? 'ai' : null
+  if (!sender) return null
+
+  const musicCards = Array.isArray(message.musicCards)
+    ? message.musicCards.map(normalizeMusicCard).filter(Boolean).slice(0, MAX_MUSIC_CARDS_PER_MESSAGE)
+    : undefined
+  const musicCard = normalizeMusicCard(message.musicCard)
+
+  return {
+    sender,
+    text: limitText(message.text, MAX_MESSAGE_TEXT_LENGTH),
+    thinkingText: message.thinkingText ? limitText(message.thinkingText, MAX_MESSAGE_TEXT_LENGTH) : undefined,
+    isThinkingFolded: !!message.isThinkingFolded,
+    musicCards: musicCards?.length ? musicCards : undefined,
+    musicCard,
+  }
+}
+
+const normalizeHistoryList = (list: unknown): HistoryItem[] => {
+  if (!Array.isArray(list)) return []
+  return list.map((item) => {
+    if (!item || typeof item !== 'object') return null
+    const raw = item
+    const type = raw.type === 'recommend' ? 'recommend' : 'history'
+    const mode = raw.mode === 'chat' ? 'chat' : 'dj'
+    const messages = Array.isArray(raw.messages)
+      ? raw.messages.map(normalizeMessage).filter(Boolean).slice(-MAX_HISTORY_MESSAGES)
+      : undefined
+
+    return {
+      id: limitText(raw.id, 80) || `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      type,
+      mode,
+      title: limitText(raw.title, 120) || (mode === 'dj' ? 'DJ 专属调频' : '知心聊天'),
+      singer: limitText(raw.singer, 200) || undefined,
+      date: limitText(raw.date, 80),
+      messages: messages?.length ? messages as HistoryItem['messages'] : undefined,
+    }
+  }).filter(Boolean).slice(0, MAX_HISTORY_ITEMS) as HistoryItem[]
+}
+
+const normalizeLogs = (logs: unknown): ProfileLogItem[] => {
+  if (!Array.isArray(logs)) return []
+  return logs.map((log) => {
+    if (!log || typeof log !== 'object') return null
+    const raw = log
+    return {
+      time: limitText(raw.time, 20),
+      content: limitText(raw.content, 500),
+    }
+  }).filter(Boolean).slice(0, MAX_PROFILE_LOGS) as ProfileLogItem[]
+}
+
+const normalizeSettings = (settings: any): DjSettingsState => {
+  const merged = { ...defaultSettings, ...(settings && typeof settings === 'object' ? settings : {}) }
+  merged.modelList = Array.isArray(merged.modelList) && merged.modelList.length
+    ? merged.modelList.slice(0, 20).map((model: any) => ({
+      id: limitText(model.id, 120),
+      name: limitText(model.name, 120),
+      baseUrl: limitText(model.baseUrl, 1000),
+      modelName: limitText(model.modelName, 200),
+      apiKey: limitText(model.apiKey, 1000),
+    }))
+    : defaultModelList.map(m => ({ ...m }))
+  return merged
+}
+
 const loadSavedSettings = (): DjSettingsState => {
   try {
     const saved = localStorage.getItem(SETTINGS_STORAGE_KEY)
     if (saved) {
       const parsed = JSON.parse(saved)
-      // 确保 modelList 有默认值
-      if (!parsed.modelList || !Array.isArray(parsed.modelList) || parsed.modelList.length === 0) {
-        parsed.modelList = defaultModelList
-      }
-      return { ...defaultSettings, ...parsed }
+      return normalizeSettings(parsed)
     }
   } catch (err) {
     console.error('加载 AI DJ 设置失败:', err)
@@ -128,9 +221,9 @@ export const addProfileLog = (content: string) => {
   const now = new Date()
   const timeStr = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}:${String(now.getSeconds()).padStart(2, '0')}`
   profileLogs.unshift({ time: timeStr, content })
-  if (profileLogs.length > 50) profileLogs.pop()
+  if (profileLogs.length > MAX_PROFILE_LOGS) profileLogs.pop()
   try {
-    localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(profileLogs))
+    localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(normalizeLogs(profileLogs)))
   } catch (err) {
     console.error('保存 AI DJ 日志失败:', err)
   }
@@ -154,7 +247,14 @@ interface HistoryStorageData {
 const loadSavedHistory = (): HistoryStorageData => {
   try {
     const saved = localStorage.getItem(HISTORY_STORAGE_KEY)
-    if (saved) return JSON.parse(saved)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      return {
+        djHistory: normalizeHistoryList(parsed.djHistory),
+        chatHistory: normalizeHistoryList(parsed.chatHistory),
+        recommendHistory: normalizeHistoryList(parsed.recommendHistory),
+      }
+    }
   } catch (err) {
     console.error('加载 AI DJ 历史记录失败:', err)
   }
@@ -167,13 +267,18 @@ export const djHistoryList = reactive<HistoryItem[]>(initialHistory.djHistory)
 export const chatHistoryList = reactive<HistoryItem[]>(initialHistory.chatHistory)
 export const recommendHistoryList = reactive<HistoryItem[]>(initialHistory.recommendHistory)
 
+let lastHistoryJson = ''
 export const saveHistory = () => {
   try {
-    localStorage.setItem(HISTORY_STORAGE_KEY, JSON.stringify({
-      djHistory: djHistoryList,
-      chatHistory: chatHistoryList,
-      recommendHistory: recommendHistoryList,
-    }))
+    const payload = {
+      djHistory: normalizeHistoryList(djHistoryList),
+      chatHistory: normalizeHistoryList(chatHistoryList),
+      recommendHistory: normalizeHistoryList(recommendHistoryList),
+    }
+    const json = JSON.stringify(payload)
+    if (json === lastHistoryJson) return
+    lastHistoryJson = json
+    localStorage.setItem(HISTORY_STORAGE_KEY, json)
   } catch (err) {
     console.error('保存 AI DJ 历史记录失败:', err)
   }
@@ -187,11 +292,11 @@ export const getDjBackupData = (): Record<string, unknown> => {
     version: 1,
     settings: { ...djSettings },
     history: {
-      djHistory: JSON.parse(JSON.stringify(djHistoryList)),
-      chatHistory: JSON.parse(JSON.stringify(chatHistoryList)),
-      recommendHistory: JSON.parse(JSON.stringify(recommendHistoryList)),
+      djHistory: normalizeHistoryList(djHistoryList),
+      chatHistory: normalizeHistoryList(chatHistoryList),
+      recommendHistory: normalizeHistoryList(recommendHistoryList),
     },
-    logs: JSON.parse(JSON.stringify(profileLogs)),
+    logs: normalizeLogs(profileLogs),
   }
 }
 
@@ -200,21 +305,21 @@ export const applyDjBackupData = (data: any): boolean => {
     if (!data || data.type !== 'ai_dj_data_v1') return false
     // 恢复设置
     if (data.settings && typeof data.settings === 'object') {
-      Object.assign(djSettings, data.settings)
+      Object.assign(djSettings, normalizeSettings(data.settings))
       localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(djSettings))
     }
     // 恢复历史
     if (data.history) {
       const h = data.history
-      djHistoryList.splice(0, djHistoryList.length, ...(h.djHistory ?? []))
-      chatHistoryList.splice(0, chatHistoryList.length, ...(h.chatHistory ?? []))
-      recommendHistoryList.splice(0, recommendHistoryList.length, ...(h.recommendHistory ?? []))
+      djHistoryList.splice(0, djHistoryList.length, ...normalizeHistoryList(h.djHistory))
+      chatHistoryList.splice(0, chatHistoryList.length, ...normalizeHistoryList(h.chatHistory))
+      recommendHistoryList.splice(0, recommendHistoryList.length, ...normalizeHistoryList(h.recommendHistory))
       saveHistory()
     }
     // 恢复日志
     if (Array.isArray(data.logs)) {
-      profileLogs.splice(0, profileLogs.length, ...data.logs)
-      localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(profileLogs))
+      profileLogs.splice(0, profileLogs.length, ...normalizeLogs(data.logs))
+      localStorage.setItem(LOGS_STORAGE_KEY, JSON.stringify(normalizeLogs(profileLogs)))
     }
     return true
   } catch (err) {

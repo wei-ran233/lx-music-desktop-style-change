@@ -18,13 +18,79 @@ export interface CitySearchResult {
   displayLabel: string
 }
 
+interface CacheEntry<T> {
+  data: T
+  expiresAt: number
+}
+
+const CITY_CACHE_TTL_MS = 10 * 60 * 1000
+const WEATHER_CACHE_TTL_MS = 15 * 60 * 1000
+const REQUEST_TIMEOUT_MS = 10000
+
+const citySearchCache = new Map<string, CacheEntry<CitySearchResult[]>>()
+const weatherCache = new Map<string, CacheEntry<WeatherData>>()
+const pendingCitySearches = new Map<string, Promise<CitySearchResult[]>>()
+let pendingWeather: { key: string, promise: Promise<WeatherData> } | null = null
+
+const getCached = <T>(cache: Map<string, CacheEntry<T>>, key: string): T | null => {
+  const entry = cache.get(key)
+  if (!entry) return null
+  if (Date.now() > entry.expiresAt) {
+    cache.delete(key)
+    return null
+  }
+  return entry.data
+}
+
+const setCached = <T>(cache: Map<string, CacheEntry<T>>, key: string, data: T, ttlMs: number) => {
+  cache.set(key, {
+    data,
+    expiresAt: Date.now() + ttlMs,
+  })
+}
+
+const fetchJson = async(url: string): Promise<any> => {
+  const response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+  if (!response.ok) throw new Error(`HTTP ${response.status}`)
+  return response.json()
+}
+
+const getWeatherCacheKey = () => [
+  djSettings.city || '成都',
+  djSettings.weatherApiKey ? 'keyed' : 'free',
+  djSettings.weatherApiHost?.trim() || '',
+].join('|')
+
+const getCityCacheKey = (keyword: string) => [
+  keyword,
+  djSettings.weatherApiKey ? 'keyed' : 'free',
+  djSettings.weatherApiHost?.trim() || '',
+].join('|')
+
 /**
  * 城市模糊搜索 (和风 GeoAPI 城市 Lookup)
  */
 export const searchCities = async(keyword: string): Promise<CitySearchResult[]> => {
   const trimKw = keyword.trim()
   if (!trimKw) return []
+  const cacheKey = getCityCacheKey(trimKw)
+  const cached = getCached(citySearchCache, cacheKey)
+  if (cached) return cached
 
+  const pending = pendingCitySearches.get(cacheKey)
+  if (pending) return pending
+
+  const promise = doSearchCities(trimKw).then((results) => {
+    setCached(citySearchCache, cacheKey, results, CITY_CACHE_TTL_MS)
+    return results
+  }).finally(() => {
+    pendingCitySearches.delete(cacheKey)
+  })
+  pendingCitySearches.set(cacheKey, promise)
+  return promise
+}
+
+const doSearchCities = async(trimKw: string): Promise<CitySearchResult[]> => {
   const apiKey = djSettings.weatherApiKey
   const isCustomHost = !!djSettings.weatherApiHost?.trim()
   const apiHost = djSettings.weatherApiHost?.trim() || 'geoapi.qweather.com'
@@ -34,8 +100,7 @@ export const searchCities = async(keyword: string): Promise<CitySearchResult[]> 
   if (apiKey) {
     try {
       const url = `${finalHost}${geoPath}?location=${encodeURIComponent(trimKw)}&key=${apiKey}&range=cn&number=10`
-      const res = await fetch(url)
-      const data = await res.json()
+      const data = await fetchJson(url)
 
       if (data.code === '200' && Array.isArray(data.location)) {
         return data.location.map((item: any) => {
@@ -79,6 +144,23 @@ export const searchCities = async(keyword: string): Promise<CitySearchResult[]> 
  * 支持和风天气 API 以及免费实测 API 自动查询
  */
 export const fetchCurrentWeather = async(): Promise<WeatherData> => {
+  const cacheKey = getWeatherCacheKey()
+  const cached = getCached(weatherCache, cacheKey)
+  if (cached) return cached
+
+  if (pendingWeather?.key === cacheKey) return pendingWeather.promise
+
+  const promise = doFetchCurrentWeather().then((data) => {
+    setCached(weatherCache, cacheKey, data, WEATHER_CACHE_TTL_MS)
+    return data
+  }).finally(() => {
+    if (pendingWeather?.key === cacheKey) pendingWeather = null
+  })
+  pendingWeather = { key: cacheKey, promise }
+  return promise
+}
+
+const doFetchCurrentWeather = async(): Promise<WeatherData> => {
   const city = djSettings.city || '成都'
   const apiKey = djSettings.weatherApiKey
   const isCustomHost = !!djSettings.weatherApiHost?.trim()
@@ -92,19 +174,17 @@ export const fetchCurrentWeather = async(): Promise<WeatherData> => {
   // 1. 如果配置了和风天气 API Key，调用官方接口
   if (apiKey) {
     try {
-      const geoRes = await fetch(
+      const geoData = await fetchJson(
         `${geoUrl}${geoPath}?location=${encodeURIComponent(city)}&key=${apiKey}`,
       )
-      const geoData = await geoRes.json()
 
       if (geoData.code === '200' && geoData.location?.[0]?.id) {
         const locationId = geoData.location[0].id
         const cityName = geoData.location[0].name || city
 
-        const weatherRes = await fetch(
+        const weatherData = await fetchJson(
           `${weatherUrl}/v7/weather/now?location=${locationId}&key=${apiKey}`,
         )
-        const weatherData = await weatherRes.json()
 
         if (weatherData.code === '200' && weatherData.now) {
           const now = weatherData.now
@@ -128,8 +208,7 @@ export const fetchCurrentWeather = async(): Promise<WeatherData> => {
 
   // 2. 自动免费实时天气接口 Lookup (免 Key 真实天气查询)
   try {
-    const res = await fetch(`https://wttr.in/${encodeURIComponent(city)}?format=j1`)
-    const data = await res.json()
+    const data = await fetchJson(`https://wttr.in/${encodeURIComponent(city)}?format=j1`)
     const current = data.current_condition?.[0]
     if (current) {
       const tempC = `${current.temp_C}°C`

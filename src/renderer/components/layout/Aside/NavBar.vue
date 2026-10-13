@@ -168,6 +168,7 @@ export default {
   display: flex;
   align-items: center;
   justify-content: center;
+  border-radius: var(--radius-md);
 
   // border-radius: @radius-border;
   .mixin-ellipsis-1();
@@ -186,6 +187,7 @@ export default {
   &.active {
     // border-left-color: @color-theme-active;
     background-color: var(--color-primary-light-300-alpha-700);
+    box-shadow: inset 0 0 0 1px var(--color-primary-alpha-200);
 
     &:before {
       transform: translateX(0);

@@ -42,12 +42,12 @@ import NavBar from './NavBar.vue'
 .logo {
   box-sizing: border-box;
   padding: 0 13%;
-  height: 50px;
+  height: calc(var(--layout-toolbar-height) - 4px);
   color: var(--color-nav-font);
   opacity: .8;
   flex: none;
   text-align: center;
-  line-height: 50px;
+  line-height: calc(var(--layout-toolbar-height) - 4px);
   font-weight: bold;
   // -webkit-app-region: no-drag;
 }

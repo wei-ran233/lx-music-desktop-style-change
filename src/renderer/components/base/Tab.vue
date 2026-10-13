@@ -59,8 +59,10 @@ export default {
   display: flex;
   flex-flow: row nowrap;
   font-size: 12px;
-  gap: 25px;
-  padding: 0 15px;
+  gap: clamp(12px, 2vw, 25px);
+  padding: 0 var(--space-content-x);
+  overflow-x: auto;
+  min-width: 0;
 
   &.left {
     justify-content: flex-start;
@@ -78,6 +80,9 @@ export default {
   cursor: pointer;
   transition: color @transition-normal;
 
+  >.label {
+    font-weight: 500;
+  }
 
   &:hover {
     color: var(--color-primary);
@@ -89,10 +94,11 @@ export default {
     cursor: default;
 
     >.label {
+      font-weight: 600;
       &:after {
         // background-color: var(--color-primary);
         opacity: 1;
-        transform: translateY(0);
+        transform: translateY(0) scaleX(1);
       }
     }
   }
@@ -107,14 +113,13 @@ export default {
     left: 0;
     bottom: 0;
     width: 100%;
-    height: 2px;
-    border-radius: 20px;
+    height: 3px;
+    border-radius: var(--radius-pill);
     background-color: transparent;
-    transform: translateY(-4px);
+    transform: translateY(-4px) scaleX(0);
     opacity: 0;
-    background-color: var(--color-primary-alpha-300);
-    transition: @transition-fast;
-    transition-property: transform, opacity;
+    background-color: var(--color-primary);
+    transition: transform var(--transition-base), opacity var(--transition-fast);
   }
 }
 </style>

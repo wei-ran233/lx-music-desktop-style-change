@@ -11,7 +11,69 @@
 import { djSettings } from '@renderer/store/dj'
 import { getUserProfilePromptString } from '@renderer/utils/dj/userProfile'
 import { buildDjIntroText, generateSuggestChips, generateChatRecommendation } from './templateEngine'
-import type { DjMode, ToolCall, StreamCallbacks } from './types'
+import { runPiAiConversation } from './ai/streamHandler'
+import type { DjMode, ToolCall, StreamCallbacks, WeatherType, MusicCard } from './types'
+
+const createAbortError = (): Error => {
+  const err = new Error('请求已取消')
+  err.name = 'AbortError'
+  return err
+}
+
+const isAbortError = (err: unknown): boolean => {
+  return !!err && typeof err === 'object' && (err as Error).name === 'AbortError'
+}
+
+const wait = async(ms: number, signal?: AbortSignal): Promise<void> => {
+  if (signal?.aborted) throw createAbortError()
+
+  await new Promise<void>((resolve, reject) => {
+    let cleanup = () => {}
+    const timer = setTimeout(() => {
+      cleanup()
+      resolve()
+    }, ms)
+    const handleAbort = () => {
+      clearTimeout(timer)
+      cleanup()
+      reject(createAbortError())
+    }
+    cleanup = () => {
+      signal?.removeEventListener('abort', handleAbort)
+    }
+
+    signal?.addEventListener('abort', handleAbort, { once: true })
+  })
+}
+
+const createTimedSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
+  const controller = new AbortController()
+  let timedOut = false
+  const timer = setTimeout(() => {
+    timedOut = true
+    controller.abort()
+  }, timeoutMs)
+  const handleParentAbort = () => {
+    controller.abort()
+  }
+
+  if (parentSignal?.aborted) {
+    controller.abort()
+  } else {
+    parentSignal?.addEventListener('abort', handleParentAbort, { once: true })
+  }
+
+  return {
+    signal: controller.signal,
+    cleanup() {
+      clearTimeout(timer)
+      parentSignal?.removeEventListener('abort', handleParentAbort)
+    },
+    isTimeout() {
+      return timedOut
+    },
+  }
+}
 
 // ─── 令牌桶限流器 ───────────────────────────────────────
 
@@ -46,15 +108,60 @@ class TokenBucket {
   }
 
   /** 等待直到获取到令牌 */
-  async acquire(): Promise<void> {
+  async acquire(signal?: AbortSignal): Promise<void> {
     while (!this.tryAcquire()) {
-      await new Promise(resolve => setTimeout(resolve, 100))
+      await wait(100, signal)
     }
   }
 }
 
-// 全局令牌桶：默认 3 req/s 突发 5
-const globalBucket = new TokenBucket(5, 3)
+class RequestSemaphore {
+  private activeCount = 0
+  private readonly queue: Array<() => void> = []
+
+  async acquire(limit: number, signal?: AbortSignal): Promise<() => void> {
+    if (signal?.aborted) throw createAbortError()
+
+    if (this.activeCount < limit) {
+      this.activeCount++
+      return this.createRelease()
+    }
+
+    return new Promise((resolve, reject) => {
+      let cleanup = () => {}
+      const run = () => {
+        cleanup()
+        this.activeCount++
+        resolve(this.createRelease())
+      }
+      const handleAbort = () => {
+        const idx = this.queue.indexOf(run)
+        if (idx > -1) this.queue.splice(idx, 1)
+        cleanup()
+        reject(createAbortError())
+      }
+      cleanup = () => {
+        signal?.removeEventListener('abort', handleAbort)
+      }
+      signal?.addEventListener('abort', handleAbort, { once: true })
+      this.queue.push(run)
+    })
+  }
+
+  private createRelease(): () => void {
+    let released = false
+    return () => {
+      if (released) return
+      released = true
+      this.activeCount = Math.max(0, this.activeCount - 1)
+      const next = this.queue.shift()
+      next?.()
+    }
+  }
+}
+
+const requestSemaphore = new RequestSemaphore()
+const bucketMap = new Map<string, TokenBucket>()
 
 // 模型预设信息
 interface ModelInfo {
@@ -95,6 +202,20 @@ const MODEL_PRESETS: ModelInfo[] = [
     rateLimit: { maxTokens: 3, refillRate: 1 },
   },
   {
+    id: 'ollama',
+    name: 'Ollama 本地引擎 (11434)',
+    defaultBaseUrl: 'http://127.0.0.1:11434/',
+    defaultModel: 'qwen2.5:7b',
+    rateLimit: { maxTokens: 20, refillRate: 10 },
+  },
+  {
+    id: 'lmstudio',
+    name: 'LM Studio 本地引擎 (1234)',
+    defaultBaseUrl: 'http://127.0.0.1:1234/',
+    defaultModel: 'default',
+    rateLimit: { maxTokens: 20, refillRate: 10 },
+  },
+  {
     id: 'qwen-turbo',
     name: '阿里通义千问 Qwen-Turbo',
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1/',
@@ -111,6 +232,36 @@ const MODEL_PRESETS: ModelInfo[] = [
 ]
 
 export const getModelPresets = () => MODEL_PRESETS
+
+const clampConcurrencyLimit = (): number => {
+  const value = Number(djSettings.concurrencyLimit) || 3
+  return Math.max(1, Math.min(10, Math.trunc(value)))
+}
+
+const getActivePresetRateLimit = () => {
+  const preset = MODEL_PRESETS.find(p => p.id === djSettings.selectedModel)
+  return preset?.rateLimit ?? { maxTokens: 5, refillRate: 3 }
+}
+
+const getActiveBucket = (): TokenBucket => {
+  const limit = clampConcurrencyLimit()
+  const presetLimit = getActivePresetRateLimit()
+  const maxTokens = Math.max(1, Math.min(presetLimit.maxTokens, limit))
+  const refillRate = Math.max(0.2, Math.min(presetLimit.refillRate, limit))
+  const key = `${djSettings.selectedModel}:${maxTokens}:${refillRate}`
+
+  let bucket = bucketMap.get(key)
+  if (!bucket) {
+    bucket = new TokenBucket(maxTokens, refillRate)
+    bucketMap.set(key, bucket)
+  }
+  return bucket
+}
+
+const acquireRequestSlot = async(signal?: AbortSignal): Promise<() => void> => {
+  await getActiveBucket().acquire(signal)
+  return requestSemaphore.acquire(clampConcurrencyLimit(), signal)
+}
 
 // ─── 缓存层 ─────────────────────────────────────────────
 
@@ -278,156 +429,65 @@ export const sendLlmStreamMessage = async(
   mode: DjMode,
   weatherStr: string,
   callbacks: StreamCallbacks,
+  options?: { signal?: AbortSignal, weatherType?: WeatherType, onFoundMusicCard?: (card: MusicCard) => void },
 ) => {
-  // 未配置 API Key → 直接使用模板引擎降级
-  if (!djSettings.apiKey) {
-    fallbackToTemplate(messages, mode, weatherStr, callbacks)
+  const signal = options?.signal
+  const isLocal = djSettings.selectedModel === 'ollama' ||
+    djSettings.selectedModel === 'lmstudio' ||
+    djSettings.selectedModel === 'local-ollama' ||
+    djSettings.selectedModel === 'local-lmstudio'
+  const isConfigured = !!djSettings.apiKey || isLocal
+
+  // 未配置 API Key 且非本地模型 → 直接使用模板引擎降级
+  if (!isConfigured) {
+    await fallbackToTemplate(messages, mode, weatherStr, callbacks, signal)
     return
   }
 
-  await globalBucket.acquire()
+  let releaseRequestSlot: (() => void) | null = null
   try {
+    releaseRequestSlot = await acquireRequestSlot(signal)
     const systemPrompt = buildSystemPrompt(mode, weatherStr)
-    const fullMessages = [
-      { role: 'system', content: systemPrompt },
-      ...messages,
-    ]
+    const chatHistory = messages
+      .filter(m => m.role === 'user' || m.role === 'assistant')
+      .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
-    const modelName = djSettings.activeModel || 'gpt-4o-mini'
-    let baseUrl = djSettings.baseUrl
-    if (!baseUrl) {
-      // 尝试从预设中查找
-      const preset = MODEL_PRESETS.find(p => p.id === djSettings.selectedModel)
-      baseUrl = preset?.defaultBaseUrl ?? ''
-    }
-    baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
-    const endpoint = `${baseUrl}chat/completions`
-
-    let response: Response | null = null
-    let maxRetries = 2
-    let attempt = 0
-
-    while (attempt <= maxRetries) {
-      try {
-        response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${djSettings.apiKey}`,
-          },
-          body: JSON.stringify({
-            model: modelName,
-            messages: fullMessages,
-            stream: true,
-            tools: AVAILABLE_TOOLS,
-            temperature: 0.7,
-          }),
-          signal: AbortSignal.timeout(30000), // 30s 超时
-        })
-
-        if (response.status === 429) {
-          attempt++
-          if (attempt <= maxRetries) {
-            const delayMs = Math.pow(2, attempt) * 1000
-            console.warn(`[LLM] 429 Rate Limit, 第 ${attempt} 次重试 (等待 ${delayMs}ms)...`)
-            await new Promise(resolve => setTimeout(resolve, delayMs))
-            continue
-          }
-          // 超过重试次数 → 降级
-          console.warn('[LLM] 429 重试耗尽，降级到模板引擎')
-          fallbackToTemplate(messages, mode, weatherStr, callbacks)
-          return
-        }
-
-        if (!response.ok) {
-          throw new Error(`HTTP ${response.status}`)
-        }
-        break
-      } catch (err: any) {
-        if (err.name === 'TimeoutError' || err.name === 'AbortError') {
-          console.warn('[LLM] 请求超时，降级到模板引擎')
-          fallbackToTemplate(messages, mode, weatherStr, callbacks)
-          return
-        }
-        attempt++
-        if (attempt > maxRetries) {
-          console.warn('[LLM] 请求失败，降级到模板引擎:', err.message)
-          fallbackToTemplate(messages, mode, weatherStr, callbacks)
-          return
-        }
-        await new Promise(resolve => setTimeout(resolve, 1000 * attempt))
-      }
-    }
-
-    if (!response?.body) {
-      fallbackToTemplate(messages, mode, weatherStr, callbacks)
+    await runPiAiConversation({
+      mode,
+      weatherStr,
+      weatherType: options?.weatherType || 'sunny',
+      systemPrompt,
+      messages: chatHistory,
+      callbacks,
+      signal,
+      onFoundMusicCard: options?.onFoundMusicCard,
+    })
+  } catch (err: any) {
+    if (isAbortError(err)) {
+      callbacks.onError(createAbortError())
       return
     }
-
-    // 正常流式读取
-    const reader = response.body.getReader()
-    const decoder = new TextDecoder('utf-8')
-    let accumulatedText = ''
-    let detectedToolCall: ToolCall | undefined
-    let rawToolCallArgs = ''
-    let toolCallName = ''
-
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-
-      const chunk = decoder.decode(value, { stream: true })
-      const lines = chunk.split('\n').filter(line => line.trim().startsWith('data:'))
-
-      for (const line of lines) {
-        const jsonStr = line.replace(/^data:\s*/, '').trim()
-        if (jsonStr === '[DONE]') break
-
-        try {
-          const parsed = JSON.parse(jsonStr)
-          const delta = parsed.choices?.[0]?.delta
-
-          if (delta?.content) {
-            accumulatedText += delta.content
-            callbacks.onToken(delta.content)
-          }
-
-          if (delta?.tool_calls?.[0]) {
-            const tc = delta.tool_calls[0]
-            if (tc.function?.name) toolCallName = tc.function.name
-            if (tc.function?.arguments) rawToolCallArgs += tc.function.arguments
-          }
-        } catch {
-          // ignore single chunk parse error
-        }
-      }
-    }
-
-    if (toolCallName) {
-      const parsedArgs = extractJsonObject(rawToolCallArgs)
-      if (parsedArgs) {
-        detectedToolCall = { name: toolCallName, arguments: parsedArgs }
-        callbacks.onToolCall?.(detectedToolCall)
-      } else {
-        console.warn('[LLM] 解析 Tool Call 参数失败，忽略:', rawToolCallArgs)
-      }
-    }
-
-    callbacks.onComplete(accumulatedText, detectedToolCall)
-  } catch (err: any) {
-    console.error('[LLM] 服务异常，降级到模板引擎:', err)
-    fallbackToTemplate(messages, mode, weatherStr, callbacks)
+    console.warn('[LLM] pi-ai 服务执行异常，降级到模板引擎:', err)
+    await fallbackToTemplate(messages, mode, weatherStr, callbacks, signal)
+  } finally {
+    releaseRequestSlot?.()
   }
 }
 
 // ─── 降级方案：本地模板引擎 ─────────────────────────────
 
-const fallbackToTemplate = (
+const fallbackToTemplate = async(
   messages: Array<{ role: string, content: string }>,
   mode: DjMode,
   weatherStr: string,
   callbacks: StreamCallbacks,
+  signal?: AbortSignal,
 ) => {
+  if (signal?.aborted) {
+    callbacks.onError(createAbortError())
+    return
+  }
+
   const lastUserMsg = [...messages].reverse().find(m => m.role === 'user')
   const query = lastUserMsg?.content ?? ''
 
@@ -454,21 +514,22 @@ const fallbackToTemplate = (
   }
 
   // 拆分为字符模拟打字机
-  const chars = fullText.split('')
-  let idx = 0
-
-  const typeNext = () => {
-    if (idx < chars.length) {
-      const chunk = chars.slice(idx, idx + 3).join('')
-      idx += 3
-      callbacks.onToken(chunk)
-      setTimeout(typeNext, 30)
-    } else {
-      callbacks.onComplete(fullText)
+  try {
+    const chars = fullText.split('')
+    for (let idx = 0; idx < chars.length; idx += 3) {
+      if (signal?.aborted) throw createAbortError()
+      callbacks.onToken(chars.slice(idx, idx + 3).join(''))
+      if (idx + 3 < chars.length) await wait(30, signal)
     }
-  }
 
-  typeNext()
+    await callbacks.onComplete(fullText)
+  } catch (err) {
+    if (isAbortError(err)) {
+      callbacks.onError(createAbortError())
+      return
+    }
+    throw err
+  }
 }
 
 // ─── 动态建议标签 ───────────────────────────────────────
@@ -491,10 +552,16 @@ export const fetchDynamicSuggestions = async(weatherStr: string, mode: DjMode): 
   }
 
   // 尝试 LLM 获取
+  let releaseRequestSlot: (() => void) | null = null
   try {
-    await globalBucket.acquire()
+    releaseRequestSlot = await acquireRequestSlot()
     const modelName = djSettings.activeModel || 'gpt-4o-mini'
-    const baseUrl = djSettings.baseUrl.endsWith('/') ? djSettings.baseUrl : `${djSettings.baseUrl}/`
+    let baseUrl = djSettings.baseUrl
+    if (!baseUrl) {
+      const preset = MODEL_PRESETS.find(p => p.id === djSettings.selectedModel)
+      baseUrl = preset?.defaultBaseUrl ?? ''
+    }
+    baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
     const endpoint = `${baseUrl}chat/completions`
 
     const prompt = `你是一个助手。请根据当前的模式（${mode === 'dj' ? '电台DJ' : '知心聊天'}）、天气情况（${weatherStr}）以及当前日期时间（${new Date().toLocaleString()}），随机生成 4 个适合用户在聊天框发送的简短提问或点歌指令（每条指令控制在 12 个字以内），必须以 JSON 数组格式返回（只返回数组本身，如 ["指令1", "指令2", "指令3", "指令4"]，不要有任何多余的文本）。`
@@ -528,6 +595,8 @@ export const fetchDynamicSuggestions = async(weatherStr: string, mode: DjMode): 
     }
   } catch (err) {
     console.warn('[LLM] 获取动态建议失败，使用模板引擎降级:', err)
+  } finally {
+    releaseRequestSlot?.()
   }
 
   // 降级

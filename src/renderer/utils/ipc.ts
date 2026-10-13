@@ -7,6 +7,11 @@ import { APP_EVENT_NAMES, DATA_KEYS, DEFAULT_SETTING } from '@common/constants'
 
 type RemoveListener = () => void
 
+export interface WindowStatus {
+  isFullscreen: boolean
+  isMaximized: boolean
+}
+
 export const getSetting = async() => {
   return rendererInvoke<LX.AppSetting>(CMMON_EVENT_NAME.get_app_setting)
 }
@@ -702,6 +707,17 @@ export const minWindow = () => {
  */
 export const maxWindow = () => {
   rendererSend(WIN_MAIN_RENDERER_EVENT_NAME.max)
+}
+
+export const getWindowStatus = async(): Promise<WindowStatus> => {
+  return rendererInvoke<WindowStatus>(WIN_MAIN_RENDERER_EVENT_NAME.get_window_status)
+}
+
+export const onWindowStatusChanged = (listener: LX.IpcRendererEventListenerParams<WindowStatus>): RemoveListener => {
+  rendererOn(WIN_MAIN_RENDERER_EVENT_NAME.window_status, listener)
+  return () => {
+    rendererOff(WIN_MAIN_RENDERER_EVENT_NAME.window_status, listener)
+  }
 }
 
 /**

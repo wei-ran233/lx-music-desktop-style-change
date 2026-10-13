@@ -62,6 +62,50 @@ export const getFontSizeWithScreen = (screenWidth: number = window.innerWidth): 
         : screenWidth <= 2560 ? 20 : 22
 }
 
+export const normalizePageScale = (_scale: unknown): LX.AppSetting['common.pageScale'] => {
+  return 1
+}
+
+export const getEffectiveFontSize = (
+  fontSize: number,
+  pageScale: unknown,
+  isFullscreen: boolean,
+  screenWidth: number = window.screen.width,
+): number => {
+  const baseFontSize = isFullscreen ? getFontSizeWithScreen(screenWidth) : fontSize
+  return Math.round(baseFontSize * normalizePageScale(pageScale) * 100) / 100
+}
+
+export const applyAppScale = (
+  fontSize: number,
+  pageScale: unknown,
+  isFullscreen: boolean,
+) => {
+  const scale = normalizePageScale(pageScale)
+  const root = document.documentElement
+  const viewportWidth = window.innerWidth
+  const viewportHeight = window.innerHeight
+
+  root.style.fontSize = `${getEffectiveFontSize(fontSize, scale, isFullscreen)}px`
+  root.style.setProperty('--app-scale', String(scale))
+  root.style.setProperty('--layout-toolbar-height', `${Math.round(54 * scale)}px`)
+  root.style.setProperty('--layout-search-height', `${Math.round(28 * scale)}px`)
+  root.style.setProperty('--layout-player-height', `${Math.round(66 * scale)}px`)
+  root.style.setProperty('--layout-sidebar-width', `clamp(${Math.round(56 * scale)}px, 6.6vw, ${Math.round(96 * scale)}px)`)
+  root.style.setProperty('--layout-list-pane-width', `clamp(${Math.round(152 * scale)}px, 16vw, ${Math.round(240 * scale)}px)`)
+  root.style.setProperty('--layout-board-pane-width', `clamp(${Math.round(140 * scale)}px, 15vw, ${Math.round(220 * scale)}px)`)
+  root.style.setProperty('--layout-setting-nav-width', `clamp(${Math.round(148 * scale)}px, 16vw, ${Math.round(228 * scale)}px)`)
+  root.style.setProperty('--layout-shadow-size', `${Math.round(8 * scale)}px`)
+  root.style.setProperty('--space-content-x', `${Math.round(16 * scale)}px`)
+  root.style.setProperty('--space-content-y', `${Math.round(12 * scale)}px`)
+  root.style.setProperty('--modal-safe-offset', `${Math.round(32 * scale)}px`)
+
+  root.classList.toggle('layout-compact', viewportWidth <= 920)
+  root.classList.toggle('layout-wide', viewportWidth >= 1203)
+  root.classList.toggle('layout-large', viewportWidth >= 1386)
+  root.classList.toggle('layout-short', viewportHeight <= 600)
+}
+
 
 export const deduplicationList = <T extends LX.Music.MusicInfo>(list: T[]): T[] => {
   const ids = new Set<string>()

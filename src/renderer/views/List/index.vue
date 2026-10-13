@@ -86,6 +86,7 @@ export default {
   height: 100%;
   display: flex;
   position: relative;
+  min-width: 0;
 }
 
 </style>

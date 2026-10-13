@@ -77,6 +77,8 @@
   "duplicate_list_tip": "이미 \"{name}\" 목록을 담은 적이 있습니다. 목록의 곡을 업데이트하시겠습니까?",
   "export": "내보내기",
   "fullscreen_exit": "전체화면 종료",
+  "window_maximize": "창 최대화",
+  "window_restore": "창 복원",
   "history_clear": "기록 지우기",
   "history_remove": "우클릭하여 이 항목 삭제",
   "history_search": "검색 기록",

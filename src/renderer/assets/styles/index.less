@@ -7,6 +7,34 @@
 }
 
 :root {
+  --app-scale: 1;
+  --layout-toolbar-height: 54px;
+  --layout-search-height: 28px;
+  --layout-player-height: 66px;
+  --layout-sidebar-width: clamp(56px, 6.6vw, 96px);
+  --layout-list-pane-width: clamp(152px, 16vw, 240px);
+  --layout-board-pane-width: clamp(140px, 15vw, 220px);
+  --layout-setting-nav-width: clamp(148px, 16vw, 228px);
+  --layout-shadow-size: 8px;
+  --space-content-x: 16px;
+  --space-content-y: 12px;
+  --modal-safe-offset: 32px;
+
+  /* 圆角与阴影 token */
+  --radius-xs: 6px;
+  --radius-sm: 10px;
+  --radius-md: 14px;
+  --radius-lg: 20px;
+  --radius-pill: 999px;
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.06);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.10);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.16);
+
+  /* 动效时长 token */
+  --transition-fast: 150ms ease-out;
+  --transition-base: 240ms ease-out;
+  --transition-slow: 320ms ease-out;
+
   --color-primary: rgb(77, 175, 124);
   --color-primary-alpha-100: rgba(77, 175, 124, 0.90);
   --color-primary-alpha-200: rgba(77, 175, 124, 0.80);
@@ -272,7 +300,7 @@
   // --color-main-background: rgba(0, 0, 0, 0.26);
   --color-btn-hide: #3bc2b2;
   --color-btn-min: #85c43b;
-  // --color-btn-max: #e7aa36;
+  --color-btn-max: #e7aa36;
   --color-btn-close: #fab4a0;
 
   --color-badge-primary: var(--color-primary);
@@ -448,6 +476,23 @@ input, textarea {
   }
 }
 
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+::-webkit-scrollbar-thumb {
+  border-radius: var(--radius-pill);
+  background-color: var(--color-primary-alpha-500);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-thumb:hover {
+  background-color: var(--color-primary-alpha-300);
+}
+
 
 .thead {
   border-bottom: var(--color-list-header-border-bottom);
@@ -491,7 +536,7 @@ table {
     flex-flow: row nowrap;
     align-items: center;
     // border-top: 1px solid rgba(0, 0, 0, 0.12);
-    transition: 0.2s ease;
+    transition: var(--transition-fast);
     transition-property: background-color, color;
     // border-bottom: 1px solid @color-theme_2-line;
     box-sizing: border-box;

@@ -1,8 +1,10 @@
 <template>
   <div :class="[$style.toolbar, { [$style.fullscreen]: isFullscreen }, appSetting['common.controlBtnPosition'] == 'left' ? $style.controlBtnLeft : $style.controlBtnRight]">
     <SearchInput />
-    <div v-if="appSetting['common.controlBtnPosition'] == 'left'" :class="$style.logo">L X</div>
-    <ControlBtns v-else />
+    <div :class="$style.actions">
+      <div v-if="appSetting['common.controlBtnPosition'] == 'left'" :class="$style.logo">L X</div>
+      <ControlBtns v-else />
+    </div>
   </div>
 </template>
 
@@ -20,10 +22,12 @@ import SearchInput from './SearchInput.vue'
 
 .toolbar {
   display: flex;
-  height: @height-toolbar;
+  height: var(--layout-toolbar-height);
   align-items: center;
   justify-content: space-between;
-  padding-left: 15px;
+  padding-left: var(--space-content-x);
+  gap: 10px;
+  min-width: 0;
   -webkit-app-region: drag;
   z-index: 2;
 
@@ -44,16 +48,34 @@ import SearchInput from './SearchInput.vue'
   }
 }
 
+.actions {
+  display: flex;
+  align-items: flex-start;
+  justify-content: flex-end;
+  flex: none;
+  min-width: 0;
+}
+
 .logo {
   box-sizing: border-box;
-  padding: 0 @height-toolbar * .4;
-  height: @height-toolbar;
+  padding: 0 calc(var(--layout-toolbar-height) * .4);
+  height: var(--layout-toolbar-height);
   color: var(--color-primary);
   flex: none;
   text-align: center;
-  line-height: @height-toolbar;
+  line-height: var(--layout-toolbar-height);
   font-weight: bold;
   // -webkit-app-region: no-drag;
+}
+
+@media (max-width: 920px) {
+  .toolbar {
+    padding-left: 10px;
+  }
+
+  .logo {
+    display: none;
+  }
 }
 
 </style>

@@ -150,12 +150,14 @@ export default {
   },
   computed: {
     contentStyle() {
+      const safeWidth = 'calc(100vw - var(--modal-safe-offset, 32px))'
+      const safeHeight = 'calc(100vh - var(--modal-safe-offset, 32px))'
       return {
-        maxWidth: this.maxWidth,
-        minWidth: this.minWidth,
-        width: this.width,
+        maxWidth: `min(${this.maxWidth}, ${safeWidth})`,
+        minWidth: `min(${this.minWidth}, ${safeWidth})`,
+        width: this.width == 'auto' ? this.width : `min(${this.width}, ${safeWidth})`,
         height: this.height,
-        maxHeight: this.maxHeight,
+        maxHeight: `min(${this.maxHeight}, ${safeHeight})`,
       }
     },
     filter() {
@@ -269,8 +271,8 @@ export default {
 
 .content {
   position: relative;
-  border-radius: 4px;
-  box-shadow: 0 0 4px rgba(0, 0, 0, .25);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
   overflow: hidden;
   // max-height: 80%;
   // max-width: 76%;

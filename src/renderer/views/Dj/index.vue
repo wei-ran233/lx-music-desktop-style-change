@@ -136,8 +136,12 @@
                 </transition>
               </div>
 
-              <button :class="$style.sendCircleBtn" :disabled="isGenerating" @click="handleSendClick">
-                {{ isGenerating ? '⌛' : '↑' }}
+              <button
+                :class="$style.sendCircleBtn"
+                :title="isGenerating ? '停止生成' : '发送'"
+                @click="handleComposerButtonClick"
+              >
+                {{ isGenerating ? '×' : '↑' }}
               </button>
             </div>
 
@@ -171,6 +175,18 @@
                 </span>
                 <span v-if="isGenerating && index === messageList.length - 1" :class="$style.typingHint">正在思考...</span>
               </div>
+
+              <!-- 深度思考过程折叠组件 -->
+              <div v-if="msg.thinkingText" :class="$style.thinkingBox">
+                <div :class="$style.thinkingHeader" @click="msg.isThinkingFolded = !msg.isThinkingFolded">
+                  <span :class="$style.thinkingTitle">🧠 深度思考过程</span>
+                  <span :class="$style.thinkingToggle">{{ msg.isThinkingFolded ? '展开 ▼' : '收起 ▲' }}</span>
+                </div>
+                <div v-show="!msg.isThinkingFolded" :class="$style.thinkingContent">
+                  {{ msg.thinkingText }}
+                </div>
+              </div>
+
               <p>{{ msg.text }}</p>
 
               <!-- 音乐推荐卡片（单首纵向 / 多首横向滑动适配） -->
@@ -224,8 +240,12 @@
               </div>
             </transition>
           </div>
-          <button :class="$style.sendCircleBtn" :disabled="isGenerating" @click="handleSendClick">
-            {{ isGenerating ? '⌛' : '↑' }}
+          <button
+            :class="$style.sendCircleBtn"
+            :title="isGenerating ? '停止生成' : '发送'"
+            @click="handleComposerButtonClick"
+          >
+            {{ isGenerating ? '×' : '↑' }}
           </button>
         </div>
       </div>
@@ -260,6 +280,7 @@ export default {
     const aiOpeningGreeting = ref('')
     const suggestionChips = ref([])
     let removeDjActionListener = null
+    let currentTimeTimer = null
 
     // 使用 composables
     const chat = useDjChat()
@@ -280,6 +301,7 @@ export default {
       clearMessages,
       attachFeatureTag: chatAttachFeatureTag,
       preloadMusicCardCovers,
+      stopGeneration,
     } = chat
 
     const {
@@ -366,22 +388,28 @@ export default {
         handleDjAction(params)
       })
 
-      setInterval(() => {
+      currentTimeTimer = setInterval(() => {
         updateCurrentTime()
       }, 60000)
     })
 
     onUnmounted(() => {
+      stopGeneration()
       stopDjSpeech()
       // 离开页面标记为非活跃，避免未使用 DJ 时也触发自动连播
       setDjPageActive(false)
       setDjActionHandler(null)
       removeDjActionListener?.()
+      if (currentTimeTimer) {
+        clearInterval(currentTimeTimer)
+        currentTimeTimer = null
+      }
     })
 
     // 切换模式
     const switchMode = (newMode) => {
       if (newMode === mode.value) return
+      stopGeneration()
       stopDjSpeech()
       mode.value = newMode
       setDjMode(newMode)
@@ -394,6 +422,7 @@ export default {
 
     // 新对话
     const startNewChat = () => {
+      stopGeneration()
       stopDjSpeech()
       historyStartNewChat()
       clearMessages()
@@ -454,6 +483,14 @@ export default {
       )
     }
 
+    const handleComposerButtonClick = () => {
+      if (isGenerating.value) {
+        stopGeneration()
+        return
+      }
+      handleSendClick()
+    }
+
     // 应用建议标签
     const applySuggestion = (text) => {
       inputMessage.value = text
@@ -504,6 +541,7 @@ export default {
       onSelectHistory,
       deleteHistory,
       handleSendClick,
+      handleComposerButtonClick,
       refreshSuggestions,
       applySuggestion,
       toggleMusicPlay,
@@ -1291,5 +1329,49 @@ export default {
   max-width: 760px;
   margin: 0 auto;
   width: 100%;
+}
+
+.thinkingBox {
+  margin: 6px 0 10px 0;
+  padding: 8px 12px;
+  background: rgba(0, 0, 0, 0.04);
+  border-radius: 8px;
+  border-left: 3px solid var(--color-primary-alpha-500);
+  font-size: 12px;
+  transition: all 0.2s ease;
+}
+
+.thinkingHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  font-weight: 500;
+  color: var(--color-font-label);
+}
+
+.thinkingTitle {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.thinkingToggle {
+  font-size: 11px;
+  opacity: 0.7;
+  &:hover { opacity: 1; }
+}
+
+.thinkingContent {
+  margin-top: 6px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  color: var(--color-font-label);
+  line-height: 1.5;
+  max-height: 240px;
+  overflow-y: auto;
+  border-top: 1px dashed rgba(0, 0, 0, 0.08);
+  padding-top: 6px;
 }
 </style>

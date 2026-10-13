@@ -158,6 +158,19 @@
       <g id="icon-window-close-2" fill="currentColor">
         <path d="M13.46,12L19,17.54V19H17.54L12,13.46L6.46,19H5V17.54L10.54,12L5,6.46V5H6.46L12,10.54L17.54,5H19V6.46L13.46,12Z" />
       </g>
+      <g id="icon-dj" fill="currentColor">
+        <!-- 0 0 24 24 电台耳机 -->
+        <path d="M12,1a9,9 0 0,0 -9,9v7a3,3 0 0,0 3,3h3v-8H5v-2a7,7 0 0,1 14,0v2h-4v8h3a3,3 0 0,0 3,-3v-7a9,9 0 0,0 -9,-9z" />
+      </g>
+      <g id="icon-window-maximize" fill="currentColor">
+        <path d="M5,5H19V19H5V5ZM7,7V17H17V7H7Z" />
+      </g>
+      <g id="icon-window-restore" fill="currentColor">
+        <path d="M7,3H21V17H18V15H19V5H9V6H7V3ZM3,7H17V21H3V7ZM5,9V19H15V9H5Z" />
+      </g>
+      <g id="icon-fullscreen-exit" fill="currentColor">
+        <path d="M8,8H5V6H10V11H8V8ZM16,8V11H14V6H19V8H16ZM8,16V13H10V18H5V16H8ZM14,18V13H16V16H19V18H14Z" />
+      </g>
       <g id="icon-list-loop" fill="currentColor">
         <!-- 0 0 24 24-->
         <path d="M0 0h24v24H0z" fill="none" />

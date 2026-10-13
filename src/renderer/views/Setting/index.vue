@@ -186,7 +186,8 @@ export default {
 }
 
 .toc {
-  flex: 0 0 16%;
+  flex: 0 0 var(--layout-setting-nav-width);
+  min-width: 0;
   overflow-y: scroll;
 }
 .tocH2 {
@@ -229,13 +230,14 @@ export default {
 // }
 
 .setting {
-  padding: 0 15px 15px;
+  padding: 0 var(--space-content-x) var(--space-content-y);
   font-size: 14px;
   box-sizing: border-box;
   overflow-y: auto;
   height: 100%;
   position: relative;
   width: 100%;
+  min-width: 0;
 
   :global {
     dt {
@@ -285,6 +287,32 @@ export default {
     .help-icon {
       margin: 0 0.4em;
     }
+  }
+}
+
+@media (max-width: 920px) {
+  .main {
+    flex-flow: column nowrap;
+  }
+
+  .toc {
+    flex: none;
+    max-height: 96px;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+
+  .tocList {
+    display: flex;
+    flex-wrap: nowrap;
+  }
+
+  .tocListItem {
+    flex: 0 0 auto;
+  }
+
+  .tocH2 {
+    padding: 7px 10px;
   }
 }
 

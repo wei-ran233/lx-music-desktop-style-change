@@ -169,18 +169,20 @@ export default {
   // height: 100%;
   display: flex;
   flex-flow: column nowrap;
+  min-width: 0;
 }
 
 .songListHeader {
   flex: none;
   display: flex;
   flex-flow: row nowrap;
-  height: 80px;
+  min-height: 80px;
+  padding: 0 var(--space-content-x);
+  box-sizing: border-box;
 }
 .songListHeaderLeft {
   flex: none;
-  margin-left: 15px;
-  height: 100%;
+  height: 80px;
   aspect-ratio: 1 / 1;
   position: relative;
   overflow: hidden;
@@ -224,7 +226,9 @@ export default {
   flex: none;
   display: flex;
   align-items: center;
-  padding-right: 15px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0;
 
   .headerRightBtn {
     border-radius: 0;
@@ -245,6 +249,30 @@ export default {
   min-height: 0;
   flex: auto;
   height: 100%;
+  min-width: 0;
+}
+
+@media (max-width: 920px) {
+  .songListHeader {
+    min-height: 72px;
+    padding: 0 10px;
+  }
+
+  .songListHeaderLeft {
+    height: 64px;
+  }
+
+  .songListHeaderMiddle {
+    p {
+      -webkit-line-clamp: 2;
+    }
+  }
+
+  .songListHeaderRight {
+    .headerRightBtn {
+      padding: 5px 8px;
+    }
+  }
 }
 </style>
 

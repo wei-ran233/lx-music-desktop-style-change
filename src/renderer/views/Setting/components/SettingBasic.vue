@@ -323,8 +323,6 @@ export default {
         { id: 19, label: t('setting__basic_font_size_19px') },
       ]
     })
-
-
     return {
       appSetting,
       updateSetting,

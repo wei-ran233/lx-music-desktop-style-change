@@ -1,8 +1,13 @@
 <template>
-  <div v-show="!isFullscreen" ref="dom_btns" :class="$style.controlBtn">
+  <div ref="dom_btns" :class="$style.controlBtn">
     <button type="button" :class="[$style.btn, $style.close]" :aria-label="$t('close')" ignore-tip :title="$t('close')" @click="closeWindow">
       <svg :class="$style.controlBtniIcon" version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 24 24" space="preserve">
         <use xlink:href="#icon-window-close" />
+      </svg>
+    </button>
+    <button type="button" :class="[$style.btn, $style.max]" :aria-label="$t(isWindowMaximized ? 'window_restore' : 'window_maximize')" ignore-tip :title="$t(isWindowMaximized ? 'window_restore' : 'window_maximize')" @click="maxWindow">
+      <svg :class="$style.controlBtniIcon" version="1.1" xmlns="http://www.w3.org/2000/svg" xlink="http://www.w3.org/1999/xlink" width="100%" viewBox="0 0 24 24" space="preserve">
+        <use :xlink:href="isWindowMaximized ? '#icon-window-restore' : '#icon-window-maximize'" />
       </svg>
     </button>
     <button type="button" :class="[$style.btn, $style.min]" :aria-label="$t('min')" ignore-tip :title="$t('min')" @click="minWindow">
@@ -14,10 +19,10 @@
 </template>
 
 <script setup>
-import { minWindow, closeWindow } from '@renderer/utils/ipc'
+import { minWindow, maxWindow, closeWindow } from '@renderer/utils/ipc'
+import { isWindowMaximized } from '@renderer/store'
 import { onMounted, onBeforeUnmount, ref, useCssModule } from '@common/utils/vueTools'
 // import { getRandom } from '../../utils'
-import { isFullscreen } from '@renderer/store'
 
 const dom_btns = ref()
 
@@ -90,9 +95,9 @@ onBeforeUnmount(() => {
   &.min {
     background-color: var(--color-btn-min);
   }
-  // &.max {
-  //   background-color: var(--color-btn-max);
-  // }
+  &.max {
+    background-color: var(--color-btn-max);
+  }
   &.close {
     background-color: var(--color-btn-close);
   }

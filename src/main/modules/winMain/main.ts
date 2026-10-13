@@ -4,10 +4,27 @@ import { createTaskBarButtons, getWindowSizeInfo } from './utils'
 import { getPlatform, isLinux, isWin } from '@common/utils'
 import { getProxy, openDevTools as handleOpenDevTools } from '@main/utils'
 import { mainSend } from '@common/mainIpc'
+import { WIN_MAIN_RENDERER_EVENT_NAME } from '@common/ipcNames'
 import { sendFocus, sendTaskbarButtonClick } from './rendererEvent'
 import { encodePath } from '@common/utils/electron'
 
 let browserWindow: Electron.BrowserWindow | null = null
+
+interface WindowStatus {
+  isFullscreen: boolean
+  isMaximized: boolean
+}
+
+export function getWindowStatus(): WindowStatus {
+  return {
+    isFullscreen: browserWindow?.isFullScreen() ?? false,
+    isMaximized: browserWindow?.isMaximized() ?? false,
+  }
+}
+
+function sendWindowStatus() {
+  sendEvent(WIN_MAIN_RENDERER_EVENT_NAME.window_status, getWindowStatus())
+}
 
 const winEvent = () => {
   if (!browserWindow) return
@@ -47,6 +64,7 @@ const winEvent = () => {
       setThumbarButtons()
     }
     global.lx.event_app.main_window_ready_to_show()
+    sendWindowStatus()
   })
 
   browserWindow.on('show', () => {
@@ -54,6 +72,26 @@ const winEvent = () => {
 
     // 修复隐藏窗口后再显示时任务栏按钮丢失的问题
     setThumbarButtons()
+    sendWindowStatus()
+  })
+  browserWindow.on('enter-full-screen', () => {
+    browserWindow!.setResizable(true)
+    global.lx.event_app.main_window_fullscreen(true)
+    sendWindowStatus()
+  })
+  browserWindow.on('leave-full-screen', () => {
+    browserWindow!.setResizable(true)
+    global.lx.event_app.main_window_fullscreen(false)
+    sendWindowStatus()
+  })
+  browserWindow.on('maximize', () => {
+    sendWindowStatus()
+  })
+  browserWindow.on('unmaximize', () => {
+    sendWindowStatus()
+  })
+  browserWindow.on('restore', () => {
+    sendWindowStatus()
   })
   browserWindow.on('hide', () => {
     global.lx.event_app.main_window_hide()
@@ -75,6 +113,8 @@ export const createWindow = () => {
    */
   const options: Electron.BrowserWindowConstructorOptions = {
     height: windowSizeInfo.height,
+    minHeight: 480,
+    minWidth: 640,
     useContentSize: true,
     width: windowSizeInfo.width,
     frame: false,
@@ -82,8 +122,8 @@ export const createWindow = () => {
     hasShadow: global.envParams.cmdParams.dt,
     // enableRemoteModule: false,
     // icon: join(global.__static, isWin ? 'icons/256x256.ico' : 'icons/512x512.png'),
-    resizable: false,
-    maximizable: false,
+    resizable: true,
+    maximizable: true,
     fullscreenable: true,
     roundedCorners: global.envParams.cmdParams.dt,
     show: false,
@@ -175,7 +215,14 @@ export const minimize = () => {
 }
 export const maximize = () => {
   if (!browserWindow) return
-  browserWindow.maximize()
+  if (browserWindow.isMinimized()) {
+    browserWindow.restore()
+  }
+  if (browserWindow.isMaximized()) {
+    browserWindow.unmaximize()
+  } else {
+    browserWindow.maximize()
+  }
 }
 export const unmaximize = () => {
   if (!browserWindow) return
@@ -229,13 +276,8 @@ export const toggleDevTools = () => {
 export const setFullScreen = (isFullscreen: boolean): boolean => {
   if (!browserWindow) return false
   if (isLinux) { // linux 需要先设置为可调整窗口大小才能全屏
-    if (isFullscreen) {
-      browserWindow.setResizable(isFullscreen)
-      browserWindow.setFullScreen(isFullscreen)
-    } else {
-      browserWindow.setFullScreen(isFullscreen)
-      browserWindow.setResizable(isFullscreen)
-    }
+    browserWindow.setResizable(true)
+    browserWindow.setFullScreen(isFullscreen)
   } else {
     browserWindow.setFullScreen(isFullscreen)
   }

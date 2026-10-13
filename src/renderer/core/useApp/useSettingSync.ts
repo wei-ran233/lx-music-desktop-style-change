@@ -2,6 +2,7 @@ import { watch } from '@common/utils/vueTools'
 import { isFullscreen, proxy, sync, windowSizeList } from '@renderer/store'
 import { appSetting } from '@renderer/store/setting'
 import { sendSyncAction, setWindowSize } from '@renderer/utils/ipc'
+import { applyAppScale } from '@renderer/utils'
 import { setLanguage } from '@root/lang'
 import { setUserApi } from '../apiSource'
 // import { applyTheme, getThemes } from '@renderer/store/utils'
@@ -13,8 +14,10 @@ export default () => {
     setWindowSize(info.width, info.height)
   })
   watch(() => appSetting['common.fontSize'], (fontSize) => {
-    if (isFullscreen.value) return
-    document.documentElement.style.fontSize = `${fontSize}px`
+    applyAppScale(fontSize, appSetting['common.pageScale'], isFullscreen.value)
+  })
+  watch(() => appSetting['common.pageScale'], (pageScale) => {
+    applyAppScale(appSetting['common.fontSize'], pageScale, isFullscreen.value)
   })
 
   watch(() => appSetting['common.langId'], (id) => {

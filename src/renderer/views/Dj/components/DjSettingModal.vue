@@ -29,6 +29,8 @@
               <select v-model="form.selectedModel" :class="$style.select" @change="onModelSelectChange">
                 <option value="openai-compatible">OpenAI 兼容接口（通用）</option>
                 <option value="deepseek">DeepSeek (深度求索)</option>
+                <option value="ollama">🦙 Ollama 本地引擎 (免 Key)</option>
+                <option value="lmstudio">🧪 LM Studio 本地引擎 (免 Key)</option>
                 <option value="glm-4.7-flash">智谱 GLM-4.7-Flash</option>
                 <option value="qwen-turbo">阿里通义千问 Qwen-Turbo</option>
                 <option value="custom">⚙️ 自定义模型</option>
@@ -41,6 +43,36 @@
               <button v-for="p in quickPresets" :key="p.id" :class="$style.quickBtn" @click="applyQuickPreset(p.id)">
                 {{ p.label }}
               </button>
+            </div>
+
+            <!-- 本地模型探测与发现 -->
+            <div :class="$style.localEngineBox">
+              <div :class="$style.localEngineHeader">
+                <span>🦙 本地模型自发现 (Ollama / LM Studio)</span>
+                <button
+                  type="button"
+                  :class="$style.detectBtn"
+                  :disabled="detectingLocal"
+                  @click="scanLocalModels"
+                >
+                  {{ detectingLocal ? '探测中...' : '🔍 一键探测本地模型' }}
+                </button>
+              </div>
+              <div v-if="localDiscoveredModels.length > 0" :class="$style.discoveredChips">
+                <span :class="$style.discoveredLabel">已发现模型（点击选用）：</span>
+                <button
+                  v-for="m in localDiscoveredModels"
+                  :key="m.id"
+                  type="button"
+                  :class="[$style.discoveredChip, { [$style.activeDiscoveredChip]: form.customModelName === m.id }]"
+                  @click="selectDiscoveredModel(m)"
+                >
+                  {{ m.name }} {{ m.size ? `(${m.size})` : '' }}
+                </button>
+              </div>
+              <p v-else-if="detectStatusText" :class="$style.detectStatusTip">
+                {{ detectStatusText }}
+              </p>
             </div>
 
             <div :class="$style.formGroup">
@@ -428,11 +460,12 @@
 </template>
 
 <script>
-import { ref, reactive, computed, watch } from '@common/utils/vueTools'
+import { ref, reactive, computed, watch, onUnmounted } from '@common/utils/vueTools'
 import { djSettings, saveDjSettings, profileLogs, clearProfileLogs, getDjBackupData, applyDjBackupData } from '@renderer/store/dj'
 import { searchCities } from '@renderer/utils/dj/weatherService'
 import { analyzeUserProfile, getUserTags, saveUserTags } from '@renderer/utils/dj/userProfile'
 import { getModelPresets } from '@renderer/utils/dj/llmService'
+import { detectAllLocalEngines } from '@renderer/utils/dj/ai/localDiscovery'
 import { showSelectDialog, openSaveDir } from '@renderer/utils/ipc'
 import { dialog } from '@renderer/plugins/Dialog'
 
@@ -460,6 +493,7 @@ export default {
     const testing = ref(false)
     const testResult = ref(null)
     let searchTimer = null
+    let citySearchSeq = 0
 
     const categories = [
       { id: 'llm', name: '模型与 API', icon: '🤖' },
@@ -472,6 +506,8 @@ export default {
 
     const quickPresets = [
       { id: 'deepseek', label: 'DeepSeek' },
+      { id: 'ollama', label: '🦙 Ollama 本地' },
+      { id: 'lmstudio', label: '🧪 LM Studio' },
       { id: 'glm-4.7-flash', label: '智谱 GLM' },
       { id: 'qwen-turbo', label: '通义千问' },
     ]
@@ -581,12 +617,15 @@ export default {
     const onCityInput = () => {
       if (searchTimer) clearTimeout(searchTimer)
       searchTimer = setTimeout(() => {
-        if (!form.city.trim()) {
+        const query = form.city.trim()
+        const seq = ++citySearchSeq
+        if (!query) {
           cityResults.value = []
           showCityDropdown.value = false
           return
         }
-        searchCities(form.city).then(results => {
+        searchCities(query).then(results => {
+          if (seq !== citySearchSeq || query !== form.city.trim()) return
           cityResults.value = results
           showCityDropdown.value = results.length > 0
         }).catch(() => {})
@@ -623,15 +662,17 @@ export default {
       saveDjSettings({ ...djSettings, modelList: form.modelList })
     }
 
-    /** 从 modelList 加载目标模型的配置（含 API Key） */
+    /** 从 modelList 加载目标模型的配置（含 API Key），用户已自定义过的配置优先 */
     const applyModelConfig = (presetId) => {
       const presets = getModelPresets()
       const preset = presets.find(p => p.id === presetId)
-      if (preset) {
-        form.baseUrl = preset.defaultBaseUrl
-        form.customModelName = preset.defaultModel
-      }
       const savedModel = form.modelList?.find(m => m.id === presetId)
+      const savedBaseUrl = savedModel?.baseUrl ?? ''
+      const presetBaseUrl = preset?.defaultBaseUrl ?? ''
+      const savedModelName = savedModel?.modelName ?? ''
+      const presetModelName = preset?.defaultModel ?? ''
+      form.baseUrl = savedBaseUrl || presetBaseUrl
+      form.customModelName = savedModelName || presetModelName
       form.apiKey = savedModel?.apiKey ?? preset?.apiKey ?? ''
     }
 
@@ -652,6 +693,51 @@ export default {
       cacheCurrentModelConfig()
       form.selectedModel = presetId
       applyModelConfig(presetId)
+    }
+
+    const detectingLocal = ref(false)
+    const localDiscoveredModels = ref([])
+    const detectStatusText = ref('')
+
+    const scanLocalModels = async() => {
+      detectingLocal.value = true
+      detectStatusText.value = '正在探测本地 Ollama (11434) 和 LM Studio (1234)...'
+      try {
+        const statuses = await detectAllLocalEngines()
+        const allModels = []
+        let onlineCount = 0
+        statuses.forEach((s) => {
+          if (s.online) {
+            onlineCount++
+            allModels.push(...s.models)
+          }
+        })
+        localDiscoveredModels.value = allModels
+        if (onlineCount > 0 && allModels.length > 0) {
+          detectStatusText.value = `✅ 已探测到 ${onlineCount} 个本地引擎，共 ${allModels.length} 个可用模型`
+        } else if (onlineCount > 0) {
+          detectStatusText.value = '⚠️ 本地引擎在线，但尚未下载任何模型 (可在终端运行 ollama pull <model>)'
+        } else {
+          detectStatusText.value = '❌ 未检测到运行中的 Ollama 或 LM Studio，请先在本地启动服务'
+        }
+      } catch (err) {
+        detectStatusText.value = `探测异常: ${err.message}`
+      } finally {
+        detectingLocal.value = false
+      }
+    }
+
+    const selectDiscoveredModel = (m) => {
+      form.customModelName = m.id
+      if (m.source === 'ollama') {
+        form.selectedModel = 'ollama'
+        form.baseUrl = 'http://127.0.0.1:11434/'
+        form.apiKey = 'ollama'
+      } else if (m.source === 'lmstudio') {
+        form.selectedModel = 'lmstudio'
+        form.baseUrl = 'http://127.0.0.1:1234/'
+        form.apiKey = 'lm-studio'
+      }
     }
 
     /** 恢复默认 prompt */
@@ -710,20 +796,28 @@ export default {
     /** 测试连接 */
     const testConnection = async() => {
       if (testing.value) return
-      if (!form.apiKey.trim() || !form.baseUrl.trim()) {
-        testResult.value = { ok: false, msg: '请先填写 API Key 和 Base URL' }
+      const preset = getModelPresets().find(p => p.id === form.selectedModel)
+      const inputBaseUrl = form.baseUrl.trim()
+      const inputModelName = form.customModelName.trim()
+      const rawBaseUrl = [inputBaseUrl, preset?.defaultBaseUrl ?? ''].find(v => !!v) ?? ''
+      const modelName = [inputModelName, preset?.defaultModel ?? 'gpt-4o-mini'].find(v => !!v) ?? 'gpt-4o-mini'
+
+      const isLocal = form.selectedModel === 'ollama' || form.selectedModel === 'lmstudio'
+      const keyToUse = form.apiKey.trim() || (isLocal ? 'local' : '')
+
+      if (!keyToUse || !rawBaseUrl || !modelName) {
+        testResult.value = { ok: false, msg: '请先填写 API Key、Base URL 和模型名称' }
         return
       }
       testing.value = true
       testResult.value = null
       try {
-        const baseUrl = form.baseUrl.endsWith('/') ? form.baseUrl : `${form.baseUrl}/`
-        const modelName = form.selectedModel === 'custom' ? form.customModelName : form.customModelName
+        const baseUrl = rawBaseUrl.endsWith('/') ? rawBaseUrl : `${rawBaseUrl}/`
         const response = await fetch(`${baseUrl}chat/completions`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${form.apiKey}`,
+            Authorization: `Bearer ${keyToUse}`,
           },
           body: JSON.stringify({
             model: modelName || 'gpt-4o-mini',
@@ -735,7 +829,13 @@ export default {
         if (response.ok) {
           testResult.value = { ok: true, msg: '✅ 连接成功，配置可用' }
         } else {
-          testResult.value = { ok: false, msg: `❌ 连接失败 (HTTP ${response.status})` }
+          let detail = ''
+          try {
+            const data = await response.clone().json()
+            detail = data.error?.message || data.message || ''
+          } catch { /* ignore */ }
+          const suffix = detail ? `：${String(detail).slice(0, 80)}` : ''
+          testResult.value = { ok: false, msg: `❌ 连接失败 (HTTP ${response.status})${suffix}` }
         }
       } catch (err) {
         testResult.value = { ok: false, msg: `❌ 请求异常: ${err.message}` }
@@ -745,17 +845,31 @@ export default {
     }
 
     const close = () => {
+      if (searchTimer) {
+        clearTimeout(searchTimer)
+        searchTimer = null
+      }
+      citySearchSeq++
       showCityDropdown.value = false
       showPopularCity.value = false
       emit('update:visible', false)
     }
 
+    onUnmounted(() => {
+      if (searchTimer) clearTimeout(searchTimer)
+      citySearchSeq++
+    })
+
     const save = () => {
       showCityDropdown.value = false
       showPopularCity.value = false
+      const selectedPreset = form.selectedModel === 'custom'
+        ? null
+        : (getModelPresets().find(p => p.id === form.selectedModel) ?? null)
+      const presetModel = selectedPreset?.defaultModel ?? ''
       const activeModel = form.selectedModel === 'custom'
         ? form.customModelName
-        : (form.customModelName || form.selectedModel)
+        : (form.customModelName || presetModel || form.selectedModel)
       form.activeModel = activeModel
 
       // 将当前 API Key 保存到对应模型配置中，便于下次切换时恢复
@@ -810,6 +924,11 @@ export default {
       selectCity,
       onModelSelectChange,
       applyQuickPreset,
+      detectingLocal,
+      localDiscoveredModels,
+      detectStatusText,
+      scanLocalModels,
+      selectDiscoveredModel,
       resetField,
       clearLogs,
       exportDjData,
@@ -1025,6 +1144,84 @@ export default {
     color: #fff;
     border-style: solid;
   }
+}
+
+/* 本地模型探测面板 */
+.localEngineBox {
+  margin-top: 10px;
+  padding: 10px 14px;
+  background: var(--color-primary-light-900-alpha-200);
+  border-radius: 10px;
+  border: 1px solid var(--color-primary-light-400-alpha-400);
+}
+
+.localEngineHeader {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-primary);
+}
+
+.detectBtn {
+  padding: 4px 10px;
+  border-radius: 12px;
+  border: none;
+  background: var(--color-primary);
+  color: #fff;
+  font-size: 11px;
+  cursor: pointer;
+  transition: all @transition-fast;
+
+  &:hover {
+    opacity: 0.9;
+  }
+  &:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+}
+
+.discoveredChips {
+  margin-top: 8px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.discoveredLabel {
+  font-size: 11.5px;
+  color: var(--color-font-label);
+  width: 100%;
+}
+
+.discoveredChip {
+  padding: 3px 10px;
+  border-radius: 12px;
+  border: 1px solid var(--color-primary);
+  background: transparent;
+  color: var(--color-primary);
+  font-size: 11px;
+  cursor: pointer;
+  transition: all @transition-fast;
+
+  &:hover {
+    background: var(--color-primary);
+    color: #fff;
+  }
+}
+
+.activeDiscoveredChip {
+  background: var(--color-primary);
+  color: #fff;
+}
+
+.detectStatusTip {
+  margin-top: 6px;
+  font-size: 11.5px;
+  color: var(--color-font-label);
 }
 
 /* 测试连接 */

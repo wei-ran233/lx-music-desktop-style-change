@@ -91,6 +91,7 @@ export default {
   height: 100%;
   display: flex;
   position: relative;
+  min-width: 0;
 }
 .header {
   flex: none;
@@ -115,7 +116,8 @@ export default {
 
 .lists {
   flex: none;
-  width: 14.8%;
+  width: var(--layout-board-pane-width);
+  min-width: 0;
   display: flex;
   flex-flow: column nowrap;
 }
@@ -178,6 +180,7 @@ export default {
   position: relative;
   overflow: hidden;
   height: 100%;
+  min-width: 0;
   flex: auto;
   display: flex;
   flex-flow: column nowrap;

@@ -76,7 +76,7 @@ body {
 
 .transparent {
   background: transparent;
-  padding: @shadow-app;
+  padding: var(--layout-shadow-size);
   // #waiting-mask {
   //   border-radius: @radius-border;
   //   left: @shadow-app;
@@ -85,11 +85,11 @@ body {
   //   bottom: @shadow-app;
   // }
   #body {
-    border-radius: @radius-border;
+    border-radius: var(--radius-sm);
   }
   #root {
-    box-shadow: 0 0 @shadow-app rgba(0, 0, 0, 0.5);
-    border-radius: @radius-border;
+    box-shadow: 0 0 var(--layout-shadow-size) rgba(0, 0, 0, 0.5);
+    border-radius: var(--radius-sm);
   }
   // #container {
     // border-radius: @radius-border;
@@ -112,9 +112,17 @@ body {
   //   margin-right: 5Px;
   // }
 }
-.fullscreen {
+.fullscreen,
+.maximized {
   background-color: var(--color-content-background);
 
+  #body,
+  #root {
+    border-radius: 0;
+  }
+  #root {
+    box-shadow: none;
+  }
   #right {
     border-top-left-radius: 0;
     border-bottom-left-radius: 0;
@@ -130,19 +138,20 @@ body {
 
 #left {
   flex: none;
-  width: @width-app-left;
+  width: var(--layout-sidebar-width);
 }
 #right {
   flex: auto;
+  min-width: 0;
   display: flex;
   flex-flow: column nowrap;
   transition: background-color @transition-normal;
   background-color: var(--color-main-background);
 
-  border-top-left-radius: @radius-border;
-  border-bottom-left-radius: @radius-border;
+  border-top-left-radius: var(--radius-sm);
+  border-bottom-left-radius: var(--radius-sm);
   overflow: hidden;
-  box-shadow: 0px 0px 4px rgba(0, 0, 0, 0.1);
+  box-shadow: var(--shadow-sm);
 }
 #toolbar, #player {
   flex: none;

@@ -26,6 +26,11 @@ const weatherType = computed<WeatherType>(() => weatherData.value.type)
 const weatherDisplay = computed(() => `${weatherData.value.weather} ${weatherData.value.temp}`)
 const fullWeatherText = computed(() => weatherData.value.fullText)
 
+export const getCurrentDjWeatherContext = (): { text: string, type: WeatherType } => ({
+  text: weatherDisplay.value,
+  type: weatherType.value,
+})
+
 export function useDjWeather() {
   /** 更新天气 */
   const refreshWeather = async() => {

@@ -1,5 +1,7 @@
-import { reactive } from '@common/utils/vueTools'
+import { reactive, ref } from '@common/utils/vueTools'
 import type { DjSettingsState, ModelPreset, ProfileLogItem, HistoryItem } from '@renderer/utils/dj/types'
+
+import { storeDjCredentials } from '@renderer/utils/dj/serviceBridge'
 
 const SETTINGS_STORAGE_KEY = 'lx_ai_dj_settings_v1'
 const LOGS_STORAGE_KEY = 'lx_ai_dj_logs_v1'
@@ -120,6 +122,7 @@ const normalizeMessage = (message: any) => {
 
   return {
     sender,
+    failed: !!message.failed,
     text: limitText(message.text, MAX_MESSAGE_TEXT_LENGTH),
     thinkingText: message.thinkingText ? limitText(message.thinkingText, MAX_MESSAGE_TEXT_LENGTH) : undefined,
     isThinkingFolded: !!message.isThinkingFolded,
@@ -143,6 +146,8 @@ const normalizeHistoryList = (list: unknown): HistoryItem[] => {
       id: limitText(raw.id, 80) || `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       type,
       mode,
+      updatedAt: Number.isFinite(raw.updatedAt) ? raw.updatedAt : Number(raw.id?.match(/(?:dj|chat|rec)-(\d{13})/)?.[1]) || undefined,
+      customTitle: !!raw.customTitle,
       title: limitText(raw.title, 120) || (mode === 'dj' ? 'DJ 专属调频' : '知心聊天'),
       singer: limitText(raw.singer, 200) || undefined,
       date: limitText(raw.date, 80),
@@ -192,14 +197,25 @@ const loadSavedSettings = (): DjSettingsState => {
 
 export const djSettings = reactive<DjSettingsState>(loadSavedSettings())
 
-export const saveDjSettings = (newSettings: Partial<DjSettingsState>) => {
-  Object.assign(djSettings, newSettings)
-  try {
-    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(djSettings))
-  } catch (err) {
-    console.error('保存 AI DJ 设置失败:', err)
+export const credentialStorage = ref('pending')
+let saveSequence = Promise.resolve()
+export const saveDjSettings = async(newSettings: Partial<DjSettingsState>) => {
+  const input = { ...djSettings, ...newSettings }
+  const save = async() => {
+    const protectedConfig = await storeDjCredentials(input)
+    localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(protectedConfig.settings))
+    Object.assign(djSettings, protectedConfig.settings)
+    credentialStorage.value = protectedConfig.storage
   }
+  saveSequence = saveSequence.catch(() => {}).then(save)
+  return saveSequence
 }
+
+// Preserve the old config until the vault write succeeds. Then remove plaintext
+// credentials from browser storage; the main process resolves references.
+export const djCredentialsReady = saveDjSettings(djSettings).catch(() => {
+  credentialStorage.value = 'unavailable'
+})
 
 const loadSavedLogs = (): ProfileLogItem[] => {
   try {
@@ -290,7 +306,7 @@ export const getDjBackupData = (): Record<string, unknown> => {
   return {
     type: 'ai_dj_data_v1',
     version: 1,
-    settings: { ...djSettings },
+    settings: { ...djSettings, apiKey: '', ttsApiKey: '', ttsCustomUrl: djSettings.ttsEngine === 'iflytek-tts' ? '' : djSettings.ttsCustomUrl, modelList: djSettings.modelList.map(model => ({ ...model, apiKey: '' })) },
     history: {
       djHistory: normalizeHistoryList(djHistoryList),
       chatHistory: normalizeHistoryList(chatHistoryList),
@@ -300,13 +316,12 @@ export const getDjBackupData = (): Record<string, unknown> => {
   }
 }
 
-export const applyDjBackupData = (data: any): boolean => {
+export const applyDjBackupData = async(data: any): Promise<boolean> => {
   try {
     if (!data || data.type !== 'ai_dj_data_v1') return false
     // 恢复设置
     if (data.settings && typeof data.settings === 'object') {
-      Object.assign(djSettings, normalizeSettings(data.settings))
-      localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(djSettings))
+      await saveDjSettings(normalizeSettings(data.settings))
     }
     // 恢复历史
     if (data.history) {

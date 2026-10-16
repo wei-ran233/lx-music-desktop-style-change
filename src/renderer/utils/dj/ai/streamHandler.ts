@@ -1,10 +1,12 @@
-import { validateToolCall, type Context, type Tool } from '@earendil-works/pi-ai'
+import { validateToolCall, type Context, type Message } from '@earendil-works/pi-ai'
 import { DJ_TOOLS } from './tools'
-import { resolveActiveModel } from './modelsManager'
+import { resolveConfiguredModel, streamModelTurn, type ModelSettings } from './modelsManager'
 import { executeToolAction, type ToolExecutionContext } from './toolExecutor'
-import type { DjMode, StreamCallbacks, ToolCall, WeatherType } from '@renderer/utils/dj/types'
+import type { DjMode, StreamCallbacks, ToolCall, WeatherType, GenerationStatus } from '@renderer/utils/dj/types'
 
 export interface AiConversationOptions {
+  sessionId?: string
+  settings: ModelSettings
   mode: DjMode
   weatherStr: string
   weatherType: WeatherType
@@ -20,14 +22,21 @@ export interface AiConversationOptions {
  */
 export async function runPiAiConversation(options: AiConversationOptions): Promise<void> {
   const { mode, weatherType, systemPrompt, messages, callbacks, signal, onFoundMusicCard } = options
-  const { models, model, apiKey } = resolveActiveModel()
+  const { model } = await resolveConfiguredModel(options.settings, signal)
 
   // 构造标准 pi-ai 格式的初始上下文
-  const contextMessages: any[] = messages.map(m => ({
-    role: m.role,
-    content: [{ type: 'text', text: m.content }],
-    timestamp: Date.now(),
-  }))
+  const contextMessages: Message[] = messages.map(m => m.role === 'user'
+    ? { role: 'user', content: m.content, timestamp: Date.now() }
+    : {
+        role: 'assistant',
+        content: [{ type: 'text', text: m.content }],
+        api: model.api,
+        provider: model.provider,
+        model: model.id,
+        usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0, cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } },
+        stopReason: 'stop',
+        timestamp: Date.now(),
+      })
 
   const context: Context = {
     systemPrompt,
@@ -39,12 +48,20 @@ export async function runPiAiConversation(options: AiConversationOptions): Promi
     mode,
     weatherType,
     onFoundMusicCard,
+    signal,
+    onStatus: callbacks.onStatus,
   }
 
+  const sessionId = options.sessionId ?? crypto.randomUUID()
+  let lastPhase = ''
+  const notify = (phase: GenerationStatus['phase'], text: string) => {
+    if (phase === lastPhase) return
+    lastPhase = phase
+    callbacks.onStatus?.({ phase, text })
+  }
   let accumulatedText = ''
-  let accumulatedThinking = ''
   let lastExecutedToolCall: ToolCall | undefined
-  const MAX_AGENT_TURNS = 3
+  const MAX_AGENT_TURNS = 6
   let turn = 0
 
   while (turn < MAX_AGENT_TURNS) {
@@ -55,22 +72,19 @@ export async function runPiAiConversation(options: AiConversationOptions): Promi
     }
     turn++
 
-    const stream = models.stream(model, context, {
-      apiKey: apiKey || undefined,
-      signal,
-    })
-
-    for await (const event of stream) {
-      if (signal?.aborted) break
+    notify('connecting', turn === 1 ? '正在连接模型' : '正在整理工具执行结果')
+    const finalMessage = await streamModelTurn(options.settings, context, sessionId, signal, event => {
+      if (signal?.aborted) return
 
       switch (event.type) {
         case 'text_delta':
+          notify('generating', '正在生成回复')
           accumulatedText += event.delta
           callbacks.onToken(event.delta)
           break
 
         case 'thinking_delta':
-          accumulatedThinking += event.delta
+          notify('thinking', '模型正在思考')
           callbacks.onThinkingDelta?.(event.delta)
           break
 
@@ -84,17 +98,19 @@ export async function runPiAiConversation(options: AiConversationOptions): Promi
             name: event.toolCall.name,
             arguments: event.toolCall.arguments || {},
           }
-          await callbacks.onToolCall?.(lastExecutedToolCall)
+          void callbacks.onToolCall?.(lastExecutedToolCall)
           break
 
         case 'error':
-          throw new Error(event.error.errorMessage || 'AI 生成异常')
+          throw new Error(event.error.errorMessage ?? 'AI 生成异常')
       }
+    })
+
+    if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' })
+
+    if (finalMessage.stopReason === 'error' || finalMessage.stopReason === 'aborted') {
+      throw Object.assign(new Error(finalMessage.errorMessage ?? 'AI 生成中断'), { name: finalMessage.stopReason === 'aborted' ? 'AbortError' : 'Error' })
     }
-
-    if (signal?.aborted) break
-
-    const finalMessage = await stream.result()
     context.messages.push(finalMessage)
 
     // 检查模型回复中是否触发了工具调用
@@ -104,16 +120,20 @@ export async function runPiAiConversation(options: AiConversationOptions): Promi
       break
     }
 
+    if (turn === MAX_AGENT_TURNS) throw new Error('工具调用次数已达上限，请缩小问题范围后重试')
+
     // 执行所有触发的工具，并将结果作为 toolResult 回填上下文
     for (const call of toolCalls) {
+      if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' })
       let resultText = ''
       let isError = false
       try {
-        const validatedArgs = validateToolCall(context.tools as Tool[], call)
+        const validatedArgs = validateToolCall(context.tools!, call)
+        notify(call.name === 'control_player' ? 'playing' : 'searching', call.name === 'control_player' ? '正在操作播放器' : call.name === 'get_user_favorites' ? '正在读取收藏偏好' : '正在搜索歌曲')
         const execResult = await executeToolAction(call.name, validatedArgs, toolExecCtx)
         resultText = JSON.stringify(execResult)
       } catch (toolErr: any) {
-        console.warn(`[StreamHandler] 工具 ${call.name} 执行失败:`, toolErr)
+        if (signal?.aborted) throw Object.assign(new Error('请求已取消'), { name: 'AbortError' })
         resultText = JSON.stringify({ error: toolErr.message || '执行失败' })
         isError = true
       }

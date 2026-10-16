@@ -1,3 +1,4 @@
+import registerDj from './dj'
 import registerUserApi from './userApi'
 import registerWinMain from './winMain'
 import registerHotKey from './hotKey'
@@ -9,6 +10,7 @@ import registerCommonRenderers from './commonRenderers'
 let isRegistered = false
 export default () => {
   if (isRegistered) return
+  registerDj()
   registerUserApi()
   registerCommonRenderers()
   registerWinMain()

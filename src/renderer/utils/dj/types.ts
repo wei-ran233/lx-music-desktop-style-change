@@ -33,6 +33,8 @@ export type MusicGenre =
 
 /** 音乐推荐卡片 */
 export interface MusicCard {
+  track?: LX.Music.MusicInfo
+  played?: boolean
   name: string
   singer?: string
   reason?: string
@@ -44,6 +46,7 @@ export interface MusicCard {
 
 /** 对话消息 */
 export interface ChatMessage {
+  failed?: boolean
   sender: MessageSender
   text: string
   thinkingText?: string
@@ -54,6 +57,8 @@ export interface ChatMessage {
 
 /** 历史记录条目 */
 export interface HistoryItem {
+  updatedAt?: number
+  customTitle?: boolean
   id: string
   type: 'history' | 'recommend'
   mode: DjMode
@@ -106,8 +111,14 @@ export interface ToolCall {
   arguments: Record<string, any>
 }
 
+export interface GenerationStatus {
+  phase: 'idle' | 'queued' | 'connecting' | 'thinking' | 'generating' | 'searching' | 'playing' | 'speaking' | 'complete' | 'error' | 'stopped'
+  text: string
+}
+
 /** 流式回调 */
 export interface StreamCallbacks {
+  onStatus?: (status: GenerationStatus) => void
   onToken: (token: string) => void
   onThinkingDelta?: (token: string) => void
   onThinkingEnd?: () => void

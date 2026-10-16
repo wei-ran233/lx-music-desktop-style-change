@@ -1,467 +1,486 @@
 <template>
-  <div v-if="visible" :class="$style.overlay" @click.self="close">
-    <div :class="$style.modal">
-      <div :class="$style.header">
-        <h3>⚙️ AI 电台设置</h3>
-        <button :class="$style.closeBtn" @click="close">✕</button>
-      </div>
-
-      <div :class="$style.body">
-        <div :class="$style.menuSidebar">
-          <button
-            v-for="cat in categories"
-            :key="cat.id"
-            :class="[$style.menuItem, { [$style.activeMenuItem]: activeCategory === cat.id }]"
-            @click="activeCategory = cat.id"
-          >
-            <span>{{ cat.icon }}</span>
-            <span>{{ cat.name }}</span>
-          </button>
+  <Teleport to="body">
+    <div v-if="visible" :class="$style.overlay" @click.self="close">
+      <div :class="$style.modal" role="dialog" aria-modal="true" aria-label="AI 电台设置">
+        <div :class="$style.header">
+          <h3><DjIcon name="settings" /> AI 电台设置</h3>
+          <button :class="$style.closeBtn" aria-label="关闭" @click="close"><DjIcon name="close" /></button>
         </div>
 
-        <div :class="$style.contentPanel" class="scroll">
-          <!-- 🤖 模型与 API -->
-          <div v-if="activeCategory === 'llm'" :class="$style.section">
-            <h4 :class="$style.sectionTitle">🤖 模型与 API</h4>
+        <div :class="$style.body">
+          <div :class="$style.menuSidebar">
+            <button
+              v-for="cat in categories"
+              :key="cat.id"
+              :class="[$style.menuItem, { [$style.activeMenuItem]: activeCategory === cat.id }]"
+              @click="activeCategory = cat.id"
+            >
+              <DjIcon :name="cat.icon" />
+              <span>{{ cat.name }}</span>
+            </button>
+          </div>
 
-            <div :class="$style.formGroup">
-              <label>选择 AI 模型</label>
-              <select v-model="form.selectedModel" :class="$style.select" @change="onModelSelectChange">
-                <option value="openai-compatible">OpenAI 兼容接口（通用）</option>
-                <option value="deepseek">DeepSeek (深度求索)</option>
-                <option value="ollama">🦙 Ollama 本地引擎 (免 Key)</option>
-                <option value="lmstudio">🧪 LM Studio 本地引擎 (免 Key)</option>
-                <option value="glm-4.7-flash">智谱 GLM-4.7-Flash</option>
-                <option value="qwen-turbo">阿里通义千问 Qwen-Turbo</option>
-                <option value="custom">⚙️ 自定义模型</option>
-              </select>
-            </div>
+          <div :class="$style.contentPanel" class="scroll">
+            <!--  模型与 API -->
+            <div v-if="activeCategory === 'llm'" :class="$style.section">
+              <h4 :class="$style.sectionTitle"><DjIcon name="model" /> 模型连接</h4>
+              <div :class="$style.formGroup">
+                <label>模型服务商</label>
+                <select v-model="form.selectedModel" :class="$style.select" @change="onModelSelectChange">
+                  <option value="openai-compatible">OpenAI 兼容接口（通用）</option>
+                  <option value="openai">OpenAI（Responses）</option>
+                  <option value="anthropic">Anthropic（Messages）</option>
+                  <option value="google">Google Gemini</option>
+                  <option value="groq">Groq</option>
+                  <option value="openrouter">OpenRouter</option>
+                  <option value="opencode-go">OpenCode Go（订阅）</option>
+                  <option value="deepseek">DeepSeek (深度求索)</option>
+                  <option value="ollama">Ollama 本地引擎 (免 Key)</option>
+                  <option value="lmstudio">LM Studio 本地引擎 (免 Key)</option>
+                  <option value="glm-4.7-flash">智谱 GLM-4.7-Flash</option>
+                  <option value="qwen-turbo">阿里通义千问 Qwen-Turbo</option>
+                  <option value="custom">自定义模型</option>
+                </select>
+              </div>
 
-            <!-- 快速预设 -->
-            <div :class="$style.quickPresets">
-              <span :class="$style.quickLabel">快速填入：</span>
-              <button v-for="p in quickPresets" :key="p.id" :class="$style.quickBtn" @click="applyQuickPreset(p.id)">
-                {{ p.label }}
-              </button>
-            </div>
-
-            <!-- 本地模型探测与发现 -->
-            <div :class="$style.localEngineBox">
-              <div :class="$style.localEngineHeader">
-                <span>🦙 本地模型自发现 (Ollama / LM Studio)</span>
+              <div :class="$style.quickPresets">
+                <span :class="$style.quickLabel">一键预设：</span>
                 <button
+                  v-for="preset in quickPresets"
+                  :key="preset.id"
                   type="button"
-                  :class="$style.detectBtn"
-                  :disabled="detectingLocal"
-                  @click="scanLocalModels"
+                  :class="[$style.quickBtn, { [$style.quickBtnActive]: form.selectedModel === preset.id }]"
+                  @click="applyQuickPreset(preset.id)"
                 >
-                  {{ detectingLocal ? '探测中...' : '🔍 一键探测本地模型' }}
+                  {{ preset.label }}
                 </button>
               </div>
-              <div v-if="localDiscoveredModels.length > 0" :class="$style.discoveredChips">
-                <span :class="$style.discoveredLabel">已发现模型（点击选用）：</span>
-                <button
-                  v-for="m in localDiscoveredModels"
-                  :key="m.id"
-                  type="button"
-                  :class="[$style.discoveredChip, { [$style.activeDiscoveredChip]: form.customModelName === m.id }]"
-                  @click="selectDiscoveredModel(m)"
-                >
-                  {{ m.name }} {{ m.size ? `(${m.size})` : '' }}
-                </button>
-              </div>
-              <p v-else-if="detectStatusText" :class="$style.detectStatusTip">
-                {{ detectStatusText }}
-              </p>
-            </div>
 
-            <div :class="$style.formGroup">
-              <label>API Base URL</label>
-              <input v-model="form.baseUrl" type="text" placeholder="https://api.openai.com/v1/" :class="$style.input" />
-              <p :class="$style.fieldTip">任何 OpenAI 兼容接口的 API 地址</p>
-            </div>
-
-            <div :class="$style.formGroup">
-              <label>模型名称</label>
-              <input v-model="form.customModelName" type="text" :placeholder="modelNamePlaceholder" :class="$style.input" />
-            </div>
-
-            <div :class="$style.formGroup">
-              <label>API Key</label>
-              <div :class="$style.inputWithBtn">
-                <input
-                  v-model="form.apiKey"
-                  :type="showApiKey ? 'text' : 'password'"
-                  placeholder="输入你的 API Key"
-                  :class="$style.input"
-                />
-                <button :class="$style.iconBtn" type="button" @click="showApiKey = !showApiKey">
-                  {{ showApiKey ? '🙈' : '👁️' }}
-                </button>
-              </div>
-              <button :class="$style.testBtn" :disabled="testing" @click="testConnection">
-                {{ testing ? '测试中...' : '🧪 测试连接' }}
-              </button>
-              <span v-if="testResult" :class="[$style.testResult, testResult.ok ? $style.testOk : $style.testFail]">
-                {{ testResult.msg }}
-              </span>
-            </div>
-
-            <div :class="$style.formGroup">
-              <label>请求并发限制</label>
-              <div :class="$style.sliderRow">
-                <input v-model.number="form.concurrencyLimit" type="range" min="1" max="10" :class="$style.slider" />
-                <span>{{ form.concurrencyLimit }} 次</span>
-              </div>
-              <p :class="$style.fieldTip">值越大响应越快，但更易触发 API 频控</p>
-            </div>
-          </div>
-
-          <!-- 📻 DJ 人设 -->
-          <div v-if="activeCategory === 'djPrompt'" :class="$style.section">
-            <h4 :class="$style.sectionTitle">🎧 DJ 模式人设</h4>
-            <p :class="$style.fieldTip">不配置时使用内置模板，留空即可。</p>
-
-            <div v-for="field in djPromptFields" :key="field.key" :class="$style.formGroup">
-              <div :class="$style.labelRow">
-                <label>{{ field.label }}</label>
-                <button :class="$style.resetBtn" type="button" @click="resetField('dj', field.key)">↺ 恢复默认</button>
-              </div>
-              <textarea
-                :value="form[field.key]"
-                :rows="field.rows"
-                :placeholder="field.placeholder"
-                :class="$style.textarea"
-                @input="form[field.key] = $event.target.value"
-              ></textarea>
-            </div>
-          </div>
-
-          <!-- 💬 聊天人设 -->
-          <div v-if="activeCategory === 'chatPrompt'" :class="$style.section">
-            <h4 :class="$style.sectionTitle">💬 聊天模式人设</h4>
-            <p :class="$style.fieldTip">不配置时使用内置模板，留空即可。</p>
-
-            <div v-for="field in chatPromptFields" :key="field.key" :class="$style.formGroup">
-              <div :class="$style.labelRow">
-                <label>{{ field.label }}</label>
-                <button :class="$style.resetBtn" type="button" @click="resetField('chat', field.key)">↺ 恢复默认</button>
-              </div>
-              <textarea
-                :value="form[field.key]"
-                :rows="field.rows"
-                :placeholder="field.placeholder"
-                :class="$style.textarea"
-                @input="form[field.key] = $event.target.value"
-              ></textarea>
-            </div>
-          </div>
-
-          <!-- 🗣️ 语音播报 -->
-          <div v-if="activeCategory === 'tts'" :class="$style.section">
-            <h4 :class="$style.sectionTitle">🗣️ 语音播报</h4>
-
-            <!-- 渠道选择（类似模型选择器） -->
-            <div :class="$style.formGroup">
-              <label>选择播报渠道</label>
-              <select v-model="form.ttsEngine" :class="$style.select">
-                <option v-for="ch in ttsChannels" :key="ch.id" :value="ch.id">{{ ch.label }}</option>
-              </select>
-              <p :class="$style.fieldTip">{{ ttsChannelHint }}</p>
-            </div>
-
-            <!-- 发音人选择（大部分渠道通用） -->
-            <div v-if="form.ttsEngine !== 'youdao-tts'" :class="$style.formGroup">
-              <label>播报发音人</label>
-              <input
-                v-model="form.ttsVoice"
-                type="text"
-                :placeholder="voicePlaceholder"
-                :class="$style.input"
-              />
-            </div>
-
-            <!-- 渠道专属配置 -->
-            <template v-if="needsApiKey">
-              <div :class="$style.formGroup">
-                <label>API Key</label>
-                <input v-model="form.ttsApiKey" type="password" placeholder="输入 TTS API Key" :class="$style.input" />
-              </div>
-            </template>
-
-            <template v-if="form.ttsEngine === 'azure-tts'">
-              <div :class="$style.formGroup">
-                <label>Region（区域）</label>
-                <input v-model="form.ttsRegion" type="text" placeholder="eastasia" :class="$style.input" />
-                <p :class="$style.fieldTip">Azure 语音服务的区域，如 eastasia / eastus</p>
-              </div>
-            </template>
-
-            <template v-if="form.ttsEngine === 'iflytek-tts'">
-              <div :class="$style.formGroup">
-                <label>App ID</label>
-                <input v-model="form.ttsAppId" type="text" placeholder="讯飞开放平台 AppID" :class="$style.input" />
-              </div>
-              <div :class="$style.formGroup">
-                <label>API Secret</label>
-                <input v-model="form.ttsCustomUrl" type="password" placeholder="讯飞 APISecret" :class="$style.input" />
-              </div>
-            </template>
-
-            <template v-if="form.ttsEngine === 'volcengine-tts'">
-              <div :class="$style.formGroup">
-                <label>App ID</label>
-                <input v-model="form.ttsAppId" type="text" placeholder="火山引擎应用 ID" :class="$style.input" />
-              </div>
-            </template>
-
-            <template v-if="form.ttsEngine === 'custom-tts'">
-              <div :class="$style.formGroup">
-                <label>自定义 API Endpoint</label>
-                <input v-model="form.ttsCustomUrl" type="text" placeholder="https://your-tts-service.com/v1/audio/speech" :class="$style.input" />
-              </div>
-            </template>
-
-            <!-- 语速 / 音调（部分渠道） -->
-            <div v-if="form.ttsEngine !== 'web-speech' && form.ttsEngine !== 'youdao-tts'" :class="$style.twoCol">
-              <div :class="$style.formGroup">
-                <label>语速 {{ form.ttsSpeed }}x</label>
-                <input v-model.number="form.ttsSpeed" type="range" min="0.5" max="2" step="0.1" :class="$style.slider" />
-              </div>
-              <div :class="$style.formGroup">
-                <label>音调 {{ form.ttsPitch }}x</label>
-                <input v-model.number="form.ttsPitch" type="range" min="0.5" max="2" step="0.1" :class="$style.slider" />
-              </div>
-            </div>
-
-            <!-- Switch 风格开关 -->
-            <div :class="$style.switchList">
-              <div :class="$style.switchItem">
-                <div :class="$style.switchText">
-                  <span :class="$style.switchTitle">💬 聊天播报</span>
-                  <span :class="$style.switchDesc">聊天回复时播放语音</span>
-                </div>
-                <button
-                  :class="[$style.switch, { [$style.switchOn]: form.enableChatSpeech }]"
-                  @click="form.enableChatSpeech = !form.enableChatSpeech"
-                >
-                  <span :class="$style.switchThumb"></span>
-                </button>
-              </div>
-              <div :class="$style.switchItem">
-                <div :class="$style.switchText">
-                  <span :class="$style.switchTitle">🎧 DJ 串场播报</span>
-                  <span :class="$style.switchDesc">切歌推荐时播放 DJ 语音</span>
-                </div>
-                <button
-                  :class="[$style.switch, { [$style.switchOn]: form.enableDjSpeech }]"
-                  @click="form.enableDjSpeech = !form.enableDjSpeech"
-                >
-                  <span :class="$style.switchThumb"></span>
-                </button>
-              </div>
-              <div :class="$style.switchItem">
-                <div :class="$style.switchText">
-                  <span :class="$style.switchTitle">🎵 自动连播</span>
-                  <span :class="$style.switchDesc">一首歌播完后自动推荐并播放下一首</span>
-                </div>
-                <button
-                  :class="[$style.switch, { [$style.switchOn]: form.autoContinue }]"
-                  @click="form.autoContinue = !form.autoContinue"
-                >
-                  <span :class="$style.switchThumb"></span>
-                </button>
-              </div>
-              <div :class="$style.switchItem">
-                <div :class="$style.switchText">
-                  <span :class="$style.switchTitle">🎧 推荐即播</span>
-                  <span :class="$style.switchDesc">DJ 推荐歌曲后立即切换播放（无需手动点击）</span>
-                </div>
-                <button
-                  :class="[$style.switch, { [$style.switchOn]: form.djAutoPlay }]"
-                  @click="form.djAutoPlay = !form.djAutoPlay"
-                >
-                  <span :class="$style.switchThumb"></span>
-                </button>
-              </div>
-            </div>
-
-            <div :class="$style.formGroup">
-              <label>语音闪避音量（播报时音乐自动压低）</label>
-              <div :class="$style.sliderRow">
-                <input v-model.number="form.duckingVolume" type="range" min="5" max="50" :class="$style.slider" />
-                <span>{{ form.duckingVolume }}%</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- 🌤️ 天气设置 -->
-          <div v-if="activeCategory === 'weather'" :class="$style.section">
-            <h4 :class="$style.sectionTitle">🌤️ 环境与天气</h4>
-
-            <div :class="$style.formGroup">
-              <label>所在城市</label>
-              <div :class="$style.inputWithBtn">
-                <input
-                  v-model="form.city"
-                  type="text"
-                  placeholder="例如：北京 / 上海 / 广州 / 成都"
-                  :class="$style.input"
-                  @input="onCityInput"
-                  @focus="onCityFocus"
-                />
-                <button :class="$style.iconBtn" type="button" title="常用城市" @click="showPopularCity = !showPopularCity">
-                  🏙️
-                </button>
-              </div>
-              <div v-if="showPopularCity" :class="$style.popularCities">
-                <button v-for="c in popularCities" :key="c" :class="$style.cityChip" @click="form.city = c">
-                  {{ c }}
-                </button>
-              </div>
-              <transition name="fade">
-                <div v-if="showCityDropdown && cityResults.length > 0" :class="$style.cityDropdown">
-                  <div
-                    v-for="item in cityResults"
-                    :key="item.id"
-                    :class="$style.cityDropdownItem"
-                    @click="selectCity(item)"
+              <div v-if="isLocalProvider" :class="$style.localEngineBox">
+                <div :class="$style.localEngineHeader">
+                  <span><DjIcon name="server" /> 本地模型自发现 (Ollama / LM Studio)</span>
+                  <button
+                    type="button"
+                    :class="$style.detectBtn"
+                    :disabled="detectingLocal"
+                    @click="scanLocalModels"
                   >
-                    <span :class="$style.cityName">{{ item.name }}</span>
-                    <span :class="$style.cityRegion">{{ item.displayLabel }}</span>
+                    <DjIcon name="search" /> {{ detectingLocal ? '探测中...' : '探测本地模型' }}
+                  </button>
+                </div>
+                <div v-if="localDiscoveredModels.length > 0" :class="$style.discoveredChips">
+                  <span :class="$style.discoveredLabel">已发现模型（点击选用）：</span>
+                  <button
+                    v-for="m in localDiscoveredModels"
+                    :key="m.source + m.id"
+                    type="button"
+                    :class="[$style.discoveredChip, { [$style.activeDiscoveredChip]: form.customModelName === m.id }]"
+                    @click="selectDiscoveredModel(m)"
+                  >
+                    {{ m.name }} {{ m.size ? `(${m.size})` : '' }}
+                  </button>
+                </div>
+                <p v-else-if="detectStatusText" :class="$style.detectStatusTip">
+                  {{ detectStatusText }}
+                </p>
+              </div>
+
+              <p v-if="form.selectedModel === 'opencode-go'" :class="$style.fieldTip">填写 Go API Key 后会自动读取在线模型列表。选择模型后，协议和接口路径自动匹配。</p>
+              <div v-if="!isLocalProvider" :class="$style.formGroup">
+                <label>API Key</label>
+                <div :class="$style.inputWithBtn">
+                  <input
+                    :value="form.apiKey.startsWith('lx-vault:') ? '' : form.apiKey"
+                    :type="showApiKey ? 'text' : 'password'"
+                    :placeholder="form.apiKey.startsWith('lx-vault:') ? '已安全保存，输入新 Key 可替换' : '输入你的 API Key'"
+                    :class="$style.input"
+                    @input="form.apiKey = $event.target.value"
+                  />
+                  <button :class="$style.iconBtn" type="button" :aria-label="showApiKey ? '隐藏 API Key' : '显示 API Key'" @click="showApiKey = !showApiKey">
+                    <DjIcon :name="showApiKey ? 'hidden' : 'eye'" />
+                  </button>
+                </div>
+              </div>
+
+              <div :class="$style.connectionRow">
+                <button :class="$style.testBtn" type="button" :disabled="testing" @click="testConnection">
+                  <DjIcon name="server" /> {{ testing ? '测试中...' : '测试连接' }}
+                </button>
+                <span v-if="testResult" :class="[$style.testResult, testResult.ok ? $style.testOk : $style.testFail]">
+                  {{ testResult.msg }}
+                </span>
+              </div>
+
+              <p :class="$style.fieldTip" role="status">{{ credentialStorage === 'system' ? '密钥已由系统密钥环保护，配置备份不包含密钥。' : credentialStorage === 'session' ? '系统密钥环不可用：新密钥仅保留在本次运行内，重启后需重新输入。' : '正在连接密钥存储；原配置会在安全迁移成功后更新。' }}</p>
+              <ModelPicker v-model="form.customModelName" :settings="form" />
+              <details :class="$style.advancedSettings">
+                <summary>高级连接设置</summary>
+                <div :class="$style.formGroup">
+                  <label>API Base URL</label>
+                  <input v-model="form.baseUrl" type="text" placeholder="https://api.openai.com/v1/" :class="$style.input" />
+                  <p :class="$style.fieldTip">填写服务商 API 根地址；本地引擎会自动补全 /v1，连接测试与对话使用相同协议</p>
+                </div>
+
+                <div :class="$style.formGroup">
+                  <label>请求并发限制</label>
+                  <div :class="$style.sliderRow">
+                    <input v-model.number="form.concurrencyLimit" type="range" min="1" max="10" :class="$style.slider" />
+                    <span>{{ form.concurrencyLimit }} 次</span>
                   </div>
+                  <p :class="$style.fieldTip">控制同时进行的请求数量；较低的数值可减少接口限流</p>
                 </div>
-              </transition>
+              </details>
             </div>
 
-            <div :class="$style.formGroup">
-              <label>和风天气 API Key（可选）</label>
-              <input v-model="form.weatherApiKey" type="password" placeholder="填入 key 可自动感知天气" :class="$style.input" />
-              <p :class="$style.fieldTip">留空时自动使用免费天气接口，无需 Key</p>
-            </div>
-          </div>
+            <!--  DJ 人设 -->
+            <div v-if="activeCategory === 'djPrompt'" :class="$style.section">
+              <h4 :class="$style.sectionTitle"><DjIcon name="headphones" /> DJ 模式人设</h4>
+              <p :class="$style.fieldTip">不配置时使用内置模板，留空即可。</p>
 
-          <!-- 📊 用户画像 -->
-          <div v-if="activeCategory === 'profile'" :class="$style.section">
-            <h4 :class="$style.sectionTitle">📊 用户品味画像</h4>
-            <p :class="$style.fieldTip">下方标签由本地分析生成，你也可以手动添加/删除来微调推荐偏好。</p>
-
-            <div :class="$style.profileCard">
-              <div :class="$style.profileBlock">
-                <div :class="$style.profileLabel">🎵 主打曲风（可编辑）</div>
-                <div :class="$style.tagCloud">
-                  <span
-                    v-for="(g, i) in editableTags.genres"
-                    :key="'g-' + i"
-                    :class="[$style.tag, $style.tagEditable]"
-                    :title="'删除：' + g"
-                    @click="removeTag('genres', i)"
-                  >{{ g }} ✕</span>
-                  <span v-if="!editableTags.genres.length" :class="$style.tagEmpty">暂无，请在下方添加</span>
+              <div v-for="field in djPromptFields" :key="field.key" :class="$style.formGroup">
+                <div :class="$style.labelRow">
+                  <label>{{ field.label }}</label>
+                  <button :class="$style.resetBtn" type="button" @click="resetField('dj', field.key)">↺ 恢复默认</button>
                 </div>
-                <div :class="$style.tagInputRow">
-                  <input
-                    v-model="newGenreTag"
-                    type="text"
-                    placeholder="添加曲风，如：治愈系 / 摇滚 / R&B"
-                    :class="$style.input"
-                    @keyup.enter="addTag('genres')"
-                  />
-                  <button :class="$style.addTagBtn" type="button" @click="addTag('genres')">＋ 添加</button>
+                <textarea
+                  :value="form[field.key]"
+                  :rows="field.rows"
+                  :placeholder="field.placeholder"
+                  :class="$style.textarea"
+                  @input="form[field.key] = $event.target.value"
+                ></textarea>
+              </div>
+            </div>
+
+            <!--  聊天人设 -->
+            <div v-if="activeCategory === 'chatPrompt'" :class="$style.section">
+              <h4 :class="$style.sectionTitle"><DjIcon name="chat" /> 聊天模式人设</h4>
+              <p :class="$style.fieldTip">不配置时使用内置模板，留空即可。</p>
+
+              <div v-for="field in chatPromptFields" :key="field.key" :class="$style.formGroup">
+                <div :class="$style.labelRow">
+                  <label>{{ field.label }}</label>
+                  <button :class="$style.resetBtn" type="button" @click="resetField('chat', field.key)">↺ 恢复默认</button>
+                </div>
+                <textarea
+                  :value="form[field.key]"
+                  :rows="field.rows"
+                  :placeholder="field.placeholder"
+                  :class="$style.textarea"
+                  @input="form[field.key] = $event.target.value"
+                ></textarea>
+              </div>
+            </div>
+
+            <!--  语音播报 -->
+            <div v-if="activeCategory === 'tts'" :class="$style.section">
+              <h4 :class="$style.sectionTitle"><DjIcon name="voice" /> 语音播报</h4>
+
+              <!-- 渠道选择（类似模型选择器） -->
+              <div :class="$style.formGroup">
+                <label>选择播报渠道</label>
+                <select v-model="form.ttsEngine" :class="$style.select">
+                  <option v-for="ch in ttsChannels" :key="ch.id" :value="ch.id">{{ ch.label }}</option>
+                </select>
+                <p :class="$style.fieldTip">{{ ttsChannelHint }}</p>
+              </div>
+
+              <!-- 发音人选择（大部分渠道通用） -->
+              <div v-if="form.ttsEngine !== 'youdao-tts'" :class="$style.formGroup">
+                <label>播报发音人</label>
+                <input
+                  v-model="form.ttsVoice"
+                  type="text"
+                  :placeholder="voicePlaceholder"
+                  :class="$style.input"
+                />
+              </div>
+
+              <!-- 渠道专属配置 -->
+              <template v-if="needsApiKey">
+                <div :class="$style.formGroup">
+                  <label>API Key</label>
+                  <input v-model="form.ttsApiKey" type="password" placeholder="输入 TTS API Key" :class="$style.input" />
+                </div>
+              </template>
+
+              <template v-if="form.ttsEngine === 'azure-tts'">
+                <div :class="$style.formGroup">
+                  <label>Region（区域）</label>
+                  <input v-model="form.ttsRegion" type="text" placeholder="eastasia" :class="$style.input" />
+                  <p :class="$style.fieldTip">Azure 语音服务的区域，如 eastasia / eastus</p>
+                </div>
+              </template>
+
+              <template v-if="form.ttsEngine === 'iflytek-tts'">
+                <div :class="$style.formGroup">
+                  <label>App ID</label>
+                  <input v-model="form.ttsAppId" type="text" placeholder="讯飞开放平台 AppID" :class="$style.input" />
+                </div>
+                <div :class="$style.formGroup">
+                  <label>API Secret</label>
+                  <input v-model="form.ttsCustomUrl" type="password" placeholder="讯飞 APISecret" :class="$style.input" />
+                </div>
+              </template>
+
+              <template v-if="form.ttsEngine === 'volcengine-tts'">
+                <div :class="$style.formGroup">
+                  <label>App ID</label>
+                  <input v-model="form.ttsAppId" type="text" placeholder="火山引擎应用 ID" :class="$style.input" />
+                </div>
+              </template>
+
+              <template v-if="form.ttsEngine === 'custom-tts'">
+                <div :class="$style.formGroup">
+                  <label>自定义 API Endpoint</label>
+                  <input v-model="form.ttsCustomUrl" type="text" placeholder="https://your-tts-service.com/v1/audio/speech" :class="$style.input" />
+                </div>
+              </template>
+
+              <!-- 语速 / 音调（部分渠道） -->
+              <div v-if="form.ttsEngine !== 'web-speech' && form.ttsEngine !== 'youdao-tts'" :class="$style.twoCol">
+                <div :class="$style.formGroup">
+                  <label>语速 {{ form.ttsSpeed }}x</label>
+                  <input v-model.number="form.ttsSpeed" type="range" min="0.5" max="2" step="0.1" :class="$style.slider" />
+                </div>
+                <div :class="$style.formGroup">
+                  <label>音调 {{ form.ttsPitch }}x</label>
+                  <input v-model.number="form.ttsPitch" type="range" min="0.5" max="2" step="0.1" :class="$style.slider" />
                 </div>
               </div>
 
-              <div :class="$style.profileBlock">
-                <div :class="$style.profileLabel">🎤 偏爱歌手（可编辑）</div>
-                <div :class="$style.tagCloud">
-                  <span
-                    v-for="(a, i) in editableTags.artists"
-                    :key="'a-' + i"
-                    :class="[$style.tag, $style.tagEditable]"
-                    :title="'删除：' + a"
-                    @click="removeTag('artists', i)"
-                  >{{ a }} ✕</span>
-                  <span v-if="!editableTags.artists.length" :class="$style.tagEmpty">暂无，请在下方添加</span>
+              <!-- Switch 风格开关 -->
+              <div :class="$style.switchList">
+                <div :class="$style.switchItem">
+                  <div :class="$style.switchText">
+                    <span :class="$style.switchTitle"><DjIcon name="chat" /> 聊天播报</span>
+                    <span :class="$style.switchDesc">聊天回复时播放语音</span>
+                  </div>
+                  <button
+                    :class="[$style.switch, { [$style.switchOn]: form.enableChatSpeech }]"
+                    @click="form.enableChatSpeech = !form.enableChatSpeech"
+                  >
+                    <span :class="$style.switchThumb"></span>
+                  </button>
                 </div>
-                <div :class="$style.tagInputRow">
-                  <input
-                    v-model="newArtistTag"
-                    type="text"
-                    placeholder="添加歌手，如：周杰伦 / 陈奕迅"
-                    :class="$style.input"
-                    @keyup.enter="addTag('artists')"
-                  />
-                  <button :class="$style.addTagBtn" type="button" @click="addTag('artists')">＋ 添加</button>
+                <div :class="$style.switchItem">
+                  <div :class="$style.switchText">
+                    <span :class="$style.switchTitle"><DjIcon name="headphones" /> DJ 串场播报</span>
+                    <span :class="$style.switchDesc">切歌推荐时播放 DJ 语音</span>
+                  </div>
+                  <button
+                    :class="[$style.switch, { [$style.switchOn]: form.enableDjSpeech }]"
+                    @click="form.enableDjSpeech = !form.enableDjSpeech"
+                  >
+                    <span :class="$style.switchThumb"></span>
+                  </button>
+                </div>
+                <div :class="$style.switchItem">
+                  <div :class="$style.switchText">
+                    <span :class="$style.switchTitle"><DjIcon name="music" /> 自动连播</span>
+                    <span :class="$style.switchDesc">一首歌播完后自动推荐并播放下一首</span>
+                  </div>
+                  <button
+                    :class="[$style.switch, { [$style.switchOn]: form.autoContinue }]"
+                    @click="form.autoContinue = !form.autoContinue"
+                  >
+                    <span :class="$style.switchThumb"></span>
+                  </button>
+                </div>
+                <div :class="$style.switchItem">
+                  <div :class="$style.switchText">
+                    <span :class="$style.switchTitle"><DjIcon name="headphones" /> 推荐即播</span>
+                    <span :class="$style.switchDesc">DJ 推荐歌曲后立即切换播放（无需手动点击）</span>
+                  </div>
+                  <button
+                    :class="[$style.switch, { [$style.switchOn]: form.djAutoPlay }]"
+                    @click="form.djAutoPlay = !form.djAutoPlay"
+                  >
+                    <span :class="$style.switchThumb"></span>
+                  </button>
                 </div>
               </div>
 
-              <!-- 曲风占比（参考大厂音乐口味分析） -->
-              <div v-if="profileSummary.genreDist.length" :class="$style.profileBlock">
-                <div :class="$style.profileLabel">📊 曲风占比</div>
-                <div :class="$style.distList">
-                  <div v-for="(g, i) in profileSummary.genreDist" :key="'gd-' + i" :class="$style.distItem">
-                    <span :class="$style.distName">{{ g.name }}</span>
-                    <div :class="$style.distBarWrap">
-                      <div :class="$style.distBar" :style="{ width: g.percent + '%' }"></div>
+              <div :class="$style.formGroup">
+                <label>语音闪避音量（播报时音乐自动压低）</label>
+                <div :class="$style.sliderRow">
+                  <input v-model.number="form.duckingVolume" type="range" min="5" max="50" :class="$style.slider" />
+                  <span>{{ form.duckingVolume }}%</span>
+                </div>
+              </div>
+            </div>
+
+            <!--  天气设置 -->
+            <div v-if="activeCategory === 'weather'" :class="$style.section">
+              <h4 :class="$style.sectionTitle"><DjIcon name="weather" /> 环境与天气</h4>
+
+              <div :class="$style.formGroup">
+                <label>所在城市</label>
+                <div :class="$style.inputWithBtn">
+                  <input
+                    v-model="form.city"
+                    type="text"
+                    placeholder="例如：北京 / 上海 / 广州 / 成都"
+                    :class="$style.input"
+                    @input="onCityInput"
+                    @focus="onCityFocus"
+                  />
+                  <button :class="$style.iconBtn" type="button" title="常用城市" @click="showPopularCity = !showPopularCity">
+                    <DjIcon name="city" />
+                  </button>
+                </div>
+                <div v-if="showPopularCity" :class="$style.popularCities">
+                  <button v-for="c in popularCities" :key="c" :class="$style.cityChip" @click="form.city = c">
+                    {{ c }}
+                  </button>
+                </div>
+                <transition name="fade">
+                  <div v-if="showCityDropdown && cityResults.length > 0" :class="$style.cityDropdown">
+                    <div
+                      v-for="item in cityResults"
+                      :key="item.id"
+                      :class="$style.cityDropdownItem"
+                      @click="selectCity(item)"
+                    >
+                      <span :class="$style.cityName">{{ item.name }}</span>
+                      <span :class="$style.cityRegion">{{ item.displayLabel }}</span>
                     </div>
-                    <span :class="$style.distPct">{{ g.percent }}%</span>
+                  </div>
+                </transition>
+              </div>
+
+              <div :class="$style.formGroup">
+                <label>和风天气 API Key（可选）</label>
+                <input v-model="form.weatherApiKey" type="password" placeholder="填入 key 可自动感知天气" :class="$style.input" />
+                <p :class="$style.fieldTip">留空时自动使用免费天气接口，无需 Key</p>
+              </div>
+            </div>
+
+            <!--  用户画像 -->
+            <div v-if="activeCategory === 'profile'" :class="$style.section">
+              <h4 :class="$style.sectionTitle"><DjIcon name="chart" /> 用户品味画像</h4>
+              <p :class="$style.fieldTip">下方标签由本地分析生成，你也可以手动添加/删除来微调推荐偏好。</p>
+
+              <div :class="$style.profileCard">
+                <div :class="$style.profileBlock">
+                  <div :class="$style.profileLabel"><DjIcon name="music" /> 主打曲风（可编辑）</div>
+                  <div :class="$style.tagCloud">
+                    <span
+                      v-for="(g, i) in editableTags.genres"
+                      :key="'g-' + i"
+                      :class="[$style.tag, $style.tagEditable]"
+                      :title="'删除：' + g"
+                      @click="removeTag('genres', i)"
+                    >{{ g }} ✕</span>
+                    <span v-if="!editableTags.genres.length" :class="$style.tagEmpty">暂无，请在下方添加</span>
+                  </div>
+                  <div :class="$style.tagInputRow">
+                    <input
+                      v-model="newGenreTag"
+                      type="text"
+                      placeholder="添加曲风，如：治愈系 / 摇滚 / R&B"
+                      :class="$style.input"
+                      @keyup.enter="addTag('genres')"
+                    />
+                    <button :class="$style.addTagBtn" type="button" @click="addTag('genres')">＋ 添加</button>
                   </div>
                 </div>
-              </div>
 
-              <!-- 情绪 / 语种标签 -->
-              <div v-if="profileSummary.moodList.length || profileSummary.langList.length" :class="$style.profileBlock">
-                <div :class="$style.profileLabel">🎭 情绪倾向</div>
-                <div :class="$style.tagCloud">
-                  <span v-for="(m, i) in profileSummary.moodList" :key="'m-' + i" :class="[$style.tag, $style.tagMood]">{{ m }}</span>
-                  <span v-if="!profileSummary.moodList.length" :class="$style.tagEmpty">暂无</span>
+                <div :class="$style.profileBlock">
+                  <div :class="$style.profileLabel"><DjIcon name="voice" /> 偏爱歌手（可编辑）</div>
+                  <div :class="$style.tagCloud">
+                    <span
+                      v-for="(a, i) in editableTags.artists"
+                      :key="'a-' + i"
+                      :class="[$style.tag, $style.tagEditable]"
+                      :title="'删除：' + a"
+                      @click="removeTag('artists', i)"
+                    >{{ a }} ✕</span>
+                    <span v-if="!editableTags.artists.length" :class="$style.tagEmpty">暂无，请在下方添加</span>
+                  </div>
+                  <div :class="$style.tagInputRow">
+                    <input
+                      v-model="newArtistTag"
+                      type="text"
+                      placeholder="添加歌手，如：周杰伦 / 陈奕迅"
+                      :class="$style.input"
+                      @keyup.enter="addTag('artists')"
+                    />
+                    <button :class="$style.addTagBtn" type="button" @click="addTag('artists')">＋ 添加</button>
+                  </div>
                 </div>
-                <div :class="$style.profileLabel" style="margin-top: 8px;">🌐 语种偏好</div>
-                <div :class="$style.tagCloud">
-                  <span v-for="(l, i) in profileSummary.langList" :key="'l-' + i" :class="[$style.tag, $style.tagLang]">{{ l }}</span>
-                  <span v-if="!profileSummary.langList.length" :class="$style.tagEmpty">暂无</span>
+
+                <!-- 曲风占比（参考大厂音乐口味分析） -->
+                <div v-if="profileSummary.genreDist.length" :class="$style.profileBlock">
+                  <div :class="$style.profileLabel"><DjIcon name="chart" /> 曲风占比</div>
+                  <div :class="$style.distList">
+                    <div v-for="(g, i) in profileSummary.genreDist" :key="'gd-' + i" :class="$style.distItem">
+                      <span :class="$style.distName">{{ g.name }}</span>
+                      <div :class="$style.distBarWrap">
+                        <div :class="$style.distBar" :style="{ width: g.percent + '%' }"></div>
+                      </div>
+                      <span :class="$style.distPct">{{ g.percent }}%</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- 情绪 / 语种标签 -->
+                <div v-if="profileSummary.moodList.length || profileSummary.langList.length" :class="$style.profileBlock">
+                  <div :class="$style.profileLabel"><DjIcon name="user" /> 情绪倾向</div>
+                  <div :class="$style.tagCloud">
+                    <span v-for="(m, i) in profileSummary.moodList" :key="'m-' + i" :class="[$style.tag, $style.tagMood]">{{ m }}</span>
+                    <span v-if="!profileSummary.moodList.length" :class="$style.tagEmpty">暂无</span>
+                  </div>
+                  <div :class="$style.profileLabel" style="margin-top: 8px;"><DjIcon name="globe" /> 语种偏好</div>
+                  <div :class="$style.tagCloud">
+                    <span v-for="(l, i) in profileSummary.langList" :key="'l-' + i" :class="[$style.tag, $style.tagLang]">{{ l }}</span>
+                    <span v-if="!profileSummary.langList.length" :class="$style.tagEmpty">暂无</span>
+                  </div>
+                </div>
+
+                <div :class="$style.profileBlock">
+                  <div :class="$style.profileLabel"><DjIcon name="book" /> 学习样本</div>
+                  <div :class="$style.profileSample">已分析 "我的喜爱" 歌单 {{ profileSummary.sampleCount }} 首歌曲</div>
                 </div>
               </div>
 
-              <div :class="$style.profileBlock">
-                <div :class="$style.profileLabel">📚 学习样本</div>
-                <div :class="$style.profileSample">已分析 "我的喜爱" 歌单 {{ profileSummary.sampleCount }} 首歌曲</div>
+              <div :class="$style.logHeader">
+                <h5 :class="$style.subTitle"><DjIcon name="book" /> 偏好学习日志</h5>
+                <button :class="$style.resetBtn" type="button" @click="clearLogs"><DjIcon name="trash" /> 清空日志</button>
               </div>
-            </div>
-
-            <div :class="$style.logHeader">
-              <h5 :class="$style.subTitle">📜 偏好学习日志</h5>
-              <button :class="$style.resetBtn" type="button" @click="clearLogs">🗑️ 清空日志</button>
-            </div>
-            <div :class="$style.logTimeline" class="scroll">
-              <div v-for="(log, idx) in logs" :key="idx" :class="$style.logItem">
-                <span :class="$style.logTime">{{ log.time }}</span>
-                <span :class="$style.logContent">{{ log.content }}</span>
+              <div :class="$style.logTimeline" class="scroll">
+                <div v-for="(log, idx) in logs" :key="idx" :class="$style.logItem">
+                  <span :class="$style.logTime">{{ log.time }}</span>
+                  <span :class="$style.logContent">{{ log.content }}</span>
+                </div>
+                <div v-if="!logs.length" :class="$style.logEmpty">暂无日志</div>
               </div>
-              <div v-if="!logs.length" :class="$style.logEmpty">暂无日志</div>
-            </div>
 
-            <!-- 数据导入 / 导出 -->
-            <div :class="$style.backupRow">
-              <button :class="$style.exportBtn" type="button" @click="exportDjData">📤 导出配置</button>
-              <button :class="$style.importBtn" type="button" @click="importDjData">📥 导入配置</button>
-              <span :class="$style.backupTip">备份/恢复 AI 电台的全部设置、历史记录与画像</span>
+              <!-- 数据导入 / 导出 -->
+              <div :class="$style.backupRow">
+                <button :class="$style.exportBtn" type="button" @click="exportDjData"><DjIcon name="upload" /> 导出配置</button>
+                <button :class="$style.importBtn" type="button" @click="importDjData"><DjIcon name="download" /> 导入配置</button>
+                <span :class="$style.backupTip">备份设置、历史与画像；密钥不包含在导出文件中</span>
+              </div>
             </div>
           </div>
         </div>
-      </div>
 
-      <div :class="$style.footer">
-        <button :class="$style.cancelBtn" @click="close">取消</button>
-        <button :class="$style.saveBtn" @click="save">保存配置</button>
+        <div :class="$style.footer">
+          <button :class="$style.cancelBtn" @click="close">取消</button>
+          <button :class="$style.saveBtn" @click="save">保存配置</button>
+        </div>
       </div>
     </div>
-  </div>
+  </Teleport>
 </template>
 
 <script>
+import ModelPicker from './ModelPicker.vue'
+import DjIcon from '@renderer/components/common/SvgIcon.vue'
+import { completeModelText, isLocalModel } from '@renderer/utils/dj/ai/modelsManager'
 import { ref, reactive, computed, watch, onUnmounted } from '@common/utils/vueTools'
-import { djSettings, saveDjSettings, profileLogs, clearProfileLogs, getDjBackupData, applyDjBackupData } from '@renderer/store/dj'
+import { djSettings, saveDjSettings, credentialStorage, profileLogs, clearProfileLogs, getDjBackupData, applyDjBackupData } from '@renderer/store/dj'
 import { searchCities } from '@renderer/utils/dj/weatherService'
 import { analyzeUserProfile, getUserTags, saveUserTags } from '@renderer/utils/dj/userProfile'
 import { getModelPresets } from '@renderer/utils/dj/llmService'
@@ -482,6 +501,7 @@ const defaultDjPrompts = {
 
 export default {
   name: 'DjSettingModal',
+  components: { DjIcon, ModelPicker },
   props: {
     visible: { type: Boolean, default: false },
   },
@@ -496,18 +516,22 @@ export default {
     let citySearchSeq = 0
 
     const categories = [
-      { id: 'llm', name: '模型与 API', icon: '🤖' },
-      { id: 'djPrompt', name: 'DJ 人设', icon: '📻' },
-      { id: 'chatPrompt', name: '聊天人设', icon: '💬' },
-      { id: 'tts', name: '语音播报', icon: '🗣️' },
-      { id: 'weather', name: '天气设置', icon: '🌤️' },
-      { id: 'profile', name: '用户画像', icon: '📊' },
+      { id: 'llm', name: '模型与 API', icon: 'model' },
+      { id: 'djPrompt', name: 'DJ 人设', icon: 'radio' },
+      { id: 'chatPrompt', name: '聊天人设', icon: 'chat' },
+      { id: 'tts', name: '语音播报', icon: 'voice' },
+      { id: 'weather', name: '天气设置', icon: 'weather' },
+      { id: 'profile', name: '用户画像', icon: 'chart' },
     ]
 
     const quickPresets = [
+      { id: 'opencode-go', label: 'OpenCode Go' },
+      { id: 'openai', label: 'OpenAI' },
+      { id: 'anthropic', label: 'Anthropic' },
+      { id: 'google', label: 'Gemini' },
       { id: 'deepseek', label: 'DeepSeek' },
-      { id: 'ollama', label: '🦙 Ollama 本地' },
-      { id: 'lmstudio', label: '🧪 LM Studio' },
+      { id: 'ollama', label: 'Ollama 本地' },
+      { id: 'lmstudio', label: 'LM Studio' },
       { id: 'glm-4.7-flash', label: '智谱 GLM' },
       { id: 'qwen-turbo', label: '通义千问' },
     ]
@@ -515,13 +539,13 @@ export default {
     const popularCities = ['北京', '上海', '广州', '深圳', '成都', '杭州', '西安', '武汉']
 
     const ttsChannels = [
-      { id: 'web-speech', label: '🖥️ 本地语音（免 Key）', hint: '使用浏览器系统语音，无需任何配置，音色取决于操作系统' },
-      { id: 'youdao-tts', label: '📖 有道翻译语音（免 Key）', hint: '免费无需 Key，音质一般但零成本，适合快速播报' },
-      { id: 'azure-tts', label: '☁️ Azure 神经语音', hint: '微软云神经语音，音质自然，需 Azure 订阅 Key 和区域' },
-      { id: 'openai-tts', label: '🔵 OpenAI TTS', hint: 'OpenAI tts-1 模型，需 OpenAI API Key' },
-      { id: 'iflytek-tts', label: '🗣️ 讯飞 TTS', hint: '科大讯飞语音合成，需开放平台 AppID + ApiKey + ApiSecret' },
-      { id: 'volcengine-tts', label: '🌋 火山引擎 TTS', hint: '字节跳动语音合成，需火山引擎 AppID 和 Access Token' },
-      { id: 'custom-tts', label: '🛠️ 自定义 TTS', hint: '对接任意 OpenAI 兼容的 TTS 服务地址' },
+      { id: 'web-speech', label: '本地语音（免 Key）', hint: '使用浏览器系统语音，无需任何配置，音色取决于操作系统' },
+      { id: 'youdao-tts', label: '有道翻译语音（免 Key）', hint: '免费无需 Key，音质一般但零成本，适合快速播报' },
+      { id: 'azure-tts', label: 'Azure 神经语音', hint: '微软云神经语音，音质自然，需 Azure 订阅 Key 和区域' },
+      { id: 'openai-tts', label: 'OpenAI TTS', hint: 'OpenAI tts-1 模型，需 OpenAI API Key' },
+      { id: 'iflytek-tts', label: '讯飞 TTS', hint: '科大讯飞语音合成，需开放平台 AppID + ApiKey + ApiSecret' },
+      { id: 'volcengine-tts', label: '火山引擎 TTS', hint: '字节跳动语音合成，需火山引擎 AppID 和 Access Token' },
+      { id: 'custom-tts', label: '自定义 TTS', hint: '对接任意 OpenAI 兼容的 TTS 服务地址' },
     ]
 
     const ttsChannelsMap = Object.fromEntries(ttsChannels.map(c => [c.id, c]))
@@ -540,22 +564,26 @@ export default {
     })
 
     const djPromptFields = [
-      { key: 'djPromptRole', label: '🎭 角色设定', rows: 3, placeholder: '设定 DJ 的性格与说话语气...' },
-      { key: 'djPromptOpening', label: '🌅 开场白规则', rows: 2, placeholder: '结合城市天气、时间段的广播开场白...' },
-      { key: 'djPromptSelection', label: '🎵 选歌逻辑', rows: 2, placeholder: '基于场景 BPM、曲风渐进的选歌算法...' },
-      { key: 'djPromptRecommendation', label: '🗣️ 串词推荐', rows: 2, placeholder: '讲出歌曲创作背景与听感故事...' },
+      { key: 'djPromptRole', label: '角色设定', rows: 3, placeholder: '设定 DJ 的性格与说话语气...' },
+      { key: 'djPromptOpening', label: '开场白规则', rows: 2, placeholder: '结合城市天气、时间段的广播开场白...' },
+      { key: 'djPromptSelection', label: '选歌逻辑', rows: 2, placeholder: '基于场景 BPM、曲风渐进的选歌算法...' },
+      { key: 'djPromptRecommendation', label: '串词推荐', rows: 2, placeholder: '讲出歌曲创作背景与听感故事...' },
     ]
 
     const chatPromptFields = [
-      { key: 'chatPromptRole', label: '🎭 角色设定', rows: 3, placeholder: '设定知心伙伴人设与倾听语气...' },
-      { key: 'chatPromptOpening', label: '🌅 开场关怀', rows: 2, placeholder: '如何根据时间发起关怀问候...' },
-      { key: 'chatPromptSelection', label: '🎵 情绪推歌', rows: 2, placeholder: '根据用户情绪状态推荐歌曲...' },
-      { key: 'chatPromptRecommendation', label: '🗣️ 乐评交流', rows: 2, placeholder: '与用户就音乐审美展开交流...' },
+      { key: 'chatPromptRole', label: '角色设定', rows: 3, placeholder: '设定知心伙伴人设与倾听语气...' },
+      { key: 'chatPromptOpening', label: '开场关怀', rows: 2, placeholder: '如何根据时间发起关怀问候...' },
+      { key: 'chatPromptSelection', label: '情绪推歌', rows: 2, placeholder: '根据用户情绪状态推荐歌曲...' },
+      { key: 'chatPromptRecommendation', label: '乐评交流', rows: 2, placeholder: '与用户就音乐审美展开交流...' },
     ]
 
-    const form = reactive({ ...djSettings })
+    const form = reactive({ ...djSettings, modelList: djSettings.modelList.map(model => ({ ...model })) })
+    let editingModelId = form.selectedModel
+    let connectionController = null
     const cityResults = ref([])
     const showCityDropdown = ref(false)
+
+    const isLocalProvider = computed(() => isLocalModel(form.selectedModel))
 
     const modelNamePlaceholder = computed(() => {
       const presets = getModelPresets()
@@ -603,13 +631,15 @@ export default {
       () => props.visible,
       (newVal) => {
         if (newVal) {
-          Object.assign(form, djSettings)
+          Object.assign(form, djSettings, { modelList: djSettings.modelList.map(model => ({ ...model })) })
+          editingModelId = form.selectedModel
           showCityDropdown.value = false
           showPopularCity.value = false
           testResult.value = null
           editableTags.value = getUserTags()
           newGenreTag.value = ''
           newArtistTag.value = ''
+          if (isLocalModel(form.selectedModel)) void scanLocalModels()
         }
       },
     )
@@ -644,13 +674,13 @@ export default {
     /** 将当前填写的配置缓存到 modelList（切换模型前调用，防止 key 丢失） */
     const cacheCurrentModelConfig = () => {
       if (!form.modelList || !Array.isArray(form.modelList)) return
-      const currentId = form.selectedModel
+      const currentId = editingModelId
       const target = form.modelList.find(m => m.id === currentId)
       const cfg = {
         id: currentId,
         name: currentId,
         baseUrl: form.baseUrl,
-        modelName: form.customModelName || currentId,
+        modelName: form.customModelName,
         apiKey: form.apiKey,
       }
       if (target) {
@@ -658,8 +688,6 @@ export default {
       } else {
         form.modelList.push(cfg)
       }
-      // 持久化配置，确保重启后 API Key 缓存仍可用
-      saveDjSettings({ ...djSettings, modelList: form.modelList })
     }
 
     /** 从 modelList 加载目标模型的配置（含 API Key），用户已自定义过的配置优先 */
@@ -673,18 +701,21 @@ export default {
       const presetModelName = preset?.defaultModel ?? ''
       form.baseUrl = savedBaseUrl || presetBaseUrl
       form.customModelName = savedModelName || presetModelName
-      form.apiKey = savedModel?.apiKey ?? preset?.apiKey ?? ''
+      form.apiKey = savedModel?.apiKey ?? ''
+      form.localAiModel = ''
+      form.activeModel = ''
+      editingModelId = presetId
+      testResult.value = null
+      connectionController?.abort()
     }
 
     const onModelSelectChange = () => {
       // 切换前先缓存当前模型的配置
       cacheCurrentModelConfig()
-      if (form.selectedModel === 'custom') {
-        form.customModelName = ''
-        form.apiKey = ''
-        return
-      }
+      connectionController?.abort()
+      testResult.value = null
       applyModelConfig(form.selectedModel)
+      if (isLocalModel(form.selectedModel)) void scanLocalModels()
     }
 
     /** 快速填入模型预设 */
@@ -693,6 +724,7 @@ export default {
       cacheCurrentModelConfig()
       form.selectedModel = presetId
       applyModelConfig(presetId)
+      if (isLocalModel(presetId)) void scanLocalModels()
     }
 
     const detectingLocal = ref(false)
@@ -714,11 +746,11 @@ export default {
         })
         localDiscoveredModels.value = allModels
         if (onlineCount > 0 && allModels.length > 0) {
-          detectStatusText.value = `✅ 已探测到 ${onlineCount} 个本地引擎，共 ${allModels.length} 个可用模型`
+          detectStatusText.value = `已探测到 ${onlineCount} 个本地引擎，共 ${allModels.length} 个可用模型`
         } else if (onlineCount > 0) {
-          detectStatusText.value = '⚠️ 本地引擎在线，但尚未下载任何模型 (可在终端运行 ollama pull <model>)'
+          detectStatusText.value = '本地引擎在线，但尚未下载任何模型 (可在终端运行 ollama pull <model>)'
         } else {
-          detectStatusText.value = '❌ 未检测到运行中的 Ollama 或 LM Studio，请先在本地启动服务'
+          detectStatusText.value = '未检测到运行中的 Ollama 或 LM Studio，请先在本地启动服务'
         }
       } catch (err) {
         detectStatusText.value = `探测异常: ${err.message}`
@@ -728,16 +760,12 @@ export default {
     }
 
     const selectDiscoveredModel = (m) => {
+      cacheCurrentModelConfig()
+      form.selectedModel = m.source
+      applyModelConfig(m.source)
       form.customModelName = m.id
-      if (m.source === 'ollama') {
-        form.selectedModel = 'ollama'
-        form.baseUrl = 'http://127.0.0.1:11434/'
-        form.apiKey = 'ollama'
-      } else if (m.source === 'lmstudio') {
-        form.selectedModel = 'lmstudio'
-        form.baseUrl = 'http://127.0.0.1:1234/'
-        form.apiKey = 'lm-studio'
-      }
+      form.localAiModel = m.id
+      form.apiKey = ''
     }
 
     /** 恢复默认 prompt */
@@ -782,9 +810,10 @@ export default {
           confirmButtonText: '确定导入',
         }).then(confirm => {
           if (!confirm) return
-          void window.lx.worker.main.readLxConfigFile(result.filePaths[0]).then(data => {
-            if (applyDjBackupData(data)) {
-              Object.assign(form, djSettings)
+          void window.lx.worker.main.readLxConfigFile(result.filePaths[0]).then(async data => {
+            if (await applyDjBackupData(data)) {
+              Object.assign(form, djSettings, { modelList: djSettings.modelList.map(model => ({ ...model })) })
+              editingModelId = form.selectedModel
             } else {
               void dialog({ message: '导入失败：文件格式不正确' })
             }
@@ -796,55 +825,26 @@ export default {
     /** 测试连接 */
     const testConnection = async() => {
       if (testing.value) return
-      const preset = getModelPresets().find(p => p.id === form.selectedModel)
-      const inputBaseUrl = form.baseUrl.trim()
-      const inputModelName = form.customModelName.trim()
-      const rawBaseUrl = [inputBaseUrl, preset?.defaultBaseUrl ?? ''].find(v => !!v) ?? ''
-      const modelName = [inputModelName, preset?.defaultModel ?? 'gpt-4o-mini'].find(v => !!v) ?? 'gpt-4o-mini'
-
-      const isLocal = form.selectedModel === 'ollama' || form.selectedModel === 'lmstudio'
-      const keyToUse = form.apiKey.trim() || (isLocal ? 'local' : '')
-
-      if (!keyToUse || !rawBaseUrl || !modelName) {
-        testResult.value = { ok: false, msg: '请先填写 API Key、Base URL 和模型名称' }
-        return
-      }
       testing.value = true
       testResult.value = null
+      const controller = new AbortController()
+      connectionController = controller
+      const timer = setTimeout(() => { controller.abort() }, 15000)
       try {
-        const baseUrl = rawBaseUrl.endsWith('/') ? rawBaseUrl : `${rawBaseUrl}/`
-        const response = await fetch(`${baseUrl}chat/completions`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${keyToUse}`,
-          },
-          body: JSON.stringify({
-            model: modelName || 'gpt-4o-mini',
-            messages: [{ role: 'user', content: 'ping' }],
-            max_tokens: 5,
-          }),
-          signal: AbortSignal.timeout(10000),
-        })
-        if (response.ok) {
-          testResult.value = { ok: true, msg: '✅ 连接成功，配置可用' }
-        } else {
-          let detail = ''
-          try {
-            const data = await response.clone().json()
-            detail = data.error?.message || data.message || ''
-          } catch { /* ignore */ }
-          const suffix = detail ? `：${String(detail).slice(0, 80)}` : ''
-          testResult.value = { ok: false, msg: `❌ 连接失败 (HTTP ${response.status})${suffix}` }
-        }
+        await completeModelText({ ...form }, '请简短回复：连接成功', controller.signal)
+        if (!controller.signal.aborted) testResult.value = { ok: true, msg: '连接成功，模型已返回响应' }
       } catch (err) {
-        testResult.value = { ok: false, msg: `❌ 请求异常: ${err.message}` }
+        if (connectionController !== controller || !props.visible) return
+        testResult.value = { ok: false, msg: controller.signal.aborted ? '测试已取消或超时，请检查服务地址' : `连接失败：${err.message}` }
       } finally {
+        clearTimeout(timer)
+        if (connectionController === controller) connectionController = null
         testing.value = false
       }
     }
 
     const close = () => {
+      connectionController?.abort()
       if (searchTimer) {
         clearTimeout(searchTimer)
         searchTimer = null
@@ -852,15 +852,17 @@ export default {
       citySearchSeq++
       showCityDropdown.value = false
       showPopularCity.value = false
+      connectionController = null
       emit('update:visible', false)
     }
 
     onUnmounted(() => {
+      connectionController?.abort()
       if (searchTimer) clearTimeout(searchTimer)
       citySearchSeq++
     })
 
-    const save = () => {
+    const save = async() => {
       showCityDropdown.value = false
       showPopularCity.value = false
       const selectedPreset = form.selectedModel === 'custom'
@@ -888,13 +890,18 @@ export default {
         }
       }
 
-      saveDjSettings(form)
+      cacheCurrentModelConfig()
+      try { await saveDjSettings(form) } catch {
+        testResult.value = { ok: false, msg: '密钥保存失败，原配置已保留，请重试' }
+        return
+      }
       emit('save', { ...form })
       close()
     }
 
     return {
       activeCategory,
+      credentialStorage,
       categories,
       form,
       logs: profileLogs,
@@ -913,6 +920,7 @@ export default {
       testing,
       testResult,
       modelNamePlaceholder,
+      isLocalProvider,
       profileSummary,
       editableTags,
       newGenreTag,
@@ -959,8 +967,8 @@ export default {
 }
 
 .modal {
-  width: 700px;
-  height: 600px;
+  width: min(760px, 94vw);
+  height: min(680px, 90vh);
   background: var(--color-content-background);
   border-radius: 16px;
   box-shadow: 0 16px 40px rgba(0, 0, 0, 0.35);
@@ -1034,6 +1042,7 @@ export default {
 }
 
 .contentPanel {
+  min-width: 0;
   flex: 1;
   padding: 24px;
   overflow-y: auto;
@@ -1139,11 +1148,18 @@ export default {
   cursor: pointer;
   transition: all @transition-fast;
 
-  &:hover {
+  &:hover, &.quickBtnActive {
     background: var(--color-primary);
     color: #fff;
     border-style: solid;
   }
+}
+
+.connectionRow {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 /* 本地模型探测面板 */
@@ -1632,4 +1648,13 @@ export default {
   font-weight: 600;
   cursor: pointer;
 }
+
+.modal button:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
+@media (max-width: 760px) {
+  .menuSidebar { width: 120px; padding: 12px 6px; }
+  .contentPanel { padding: 16px; }
+  .menuItem { padding: 10px 6px; font-size: 12px; }
+  .localEngineHeader { flex-wrap: wrap; gap: 8px; }
+}
+.advancedSettings { border-top: 1px solid var(--color-primary-alpha-200); padding-top: 12px; summary { cursor: pointer; font-size: 12px; color: var(--color-font-label); padding-bottom: 12px; } > div { margin-bottom: 16px; } }
 </style>

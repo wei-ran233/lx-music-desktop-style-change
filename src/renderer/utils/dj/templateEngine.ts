@@ -54,64 +54,64 @@ export const detectWeatherType = (weatherText: string): WeatherType => {
 const greetingTemplates: Record<DjMode, Partial<Record<TimePeriod, string[]>>> = {
   dj: {
     dawn: [
-      '🌅 清晨的第一缕阳光刚刚升起，我是你的 AI 音乐 DJ，为你送上今日的早安旋律。',
-      '🌄 破晓时分，万物苏醒。这里是 AI 音乐调频，用一首温暖的歌唤醒你的耳朵。',
+      '清晨的第一缕阳光刚刚升起，我是你的 AI 音乐 DJ，为你送上今日的早安旋律。',
+      '破晓时分，万物苏醒。这里是 AI 音乐调频，用一首温暖的歌唤醒你的耳朵。',
     ],
     morning: [
-      '☀️ 早上好！这里是 AI 音乐调频，为你开启今日的好心情。',
-      '🌞 阳光正好，微风不燥。我是你的 AI 音乐 DJ，准备了一份元气满满的歌单。',
-      '🎧 早安！新的一天已经开始，让我用音乐为你注入满满活力。',
+      '☀早上好！这里是 AI 音乐调频，为你开启今日的好心情。',
+      '阳光正好，微风不燥。我是你的 AI 音乐 DJ，准备了一份元气满满的歌单。',
+      '早安！新的一天已经开始，让我用音乐为你注入满满活力。',
     ],
     noon: [
-      '🌤️ 正午时分，该休息一下了。我是你的 AI 音乐 DJ，陪你度过午间时光。',
+      '正午时分，该休息一下了。我是你的 AI 音乐 DJ，陪你度过午间时光。',
       '☕ 午安，来杯咖啡，戴上耳机，让音乐陪你度过这个午后。',
     ],
     afternoon: [
-      '🎵 下午好，我是你的 AI 音乐 DJ。愿这段旋律能为你带来一份轻松惬意。',
-      '📖 午后的时光最适合放空，让音乐成为你此刻的背景色。',
+      '下午好，我是你的 AI 音乐 DJ。愿这段旋律能为你带来一份轻松惬意。',
+      '午后的时光最适合放空，让音乐成为你此刻的背景色。',
     ],
     evening: [
-      '🌆 傍晚时分，天边的晚霞正美。我是 AI 音乐 DJ，陪你一起告别今天。',
-      '🌇 落日余晖，华灯初上。用一首歌的时间，让心情慢慢沉淀。',
+      '傍晚时分，天边的晚霞正美。我是 AI 音乐 DJ，陪你一起告别今天。',
+      '落日余晖，华灯初上。用一首歌的时间，让心情慢慢沉淀。',
     ],
     night: [
-      '🌙 晚上好，夜色已深。我是你的 AI 音乐 DJ，为你播送夜间情绪特调。',
+      '晚上好，夜色已深。我是你的 AI 音乐 DJ，为你播送夜间情绪特调。',
       '✨ 夜幕降临，星光点点。这里有一份为你准备的夜间歌单，请查收。',
-      '🎑 晚安调频现在开始，让温柔的旋律陪你度过这个夜晚。',
+      '晚安调频现在开始，让温柔的旋律陪你度过这个夜晚。',
     ],
     lateNight: [
-      '🌃 深夜了，还没睡吗？我是你的 AI 音乐 DJ，用音乐陪你守夜。',
+      '深夜了，还没睡吗？我是你的 AI 音乐 DJ，用音乐陪你守夜。',
       '⭐ 凌晨的时光格外安静，特别适合听一些走心的旋律。',
     ],
   },
   chat: {
     dawn: [
-      '🌅 这么早就醒了呀，今天有什么计划吗？让我陪你一起迎接清晨吧。',
-      '🌄 清晨的空气最清新，你现在心情如何？',
+      '这么早就醒了呀，今天有什么计划吗？让我陪你一起迎接清晨吧。',
+      '清晨的空气最清新，你现在心情如何？',
     ],
     morning: [
-      '💬 早上好！今天有什么想聊的？或者想听点什么样的音乐？',
-      '☀️ 早安！新的一天开始了，想和我聊聊今天的计划吗？',
+      '早上好！今天有什么想聊的？或者想听点什么样的音乐？',
+      '☀早安！新的一天开始了，想和我聊聊今天的计划吗？',
     ],
     noon: [
-      '💬 午安！午饭吃了吗？想听点什么还是想聊聊今天的事？',
+      '午安！午饭吃了吗？想听点什么还是想聊聊今天的事？',
       '☕ 中午好，休息时间到！有什么想聊的或者想听的歌吗？',
     ],
     afternoon: [
-      '💬 下午好！今天过得怎么样？想和我聊聊还是想听点音乐？',
-      '📖 午后的时光最适合聊天了，你今天遇到了什么有趣的事吗？',
+      '下午好！今天过得怎么样？想和我聊聊还是想听点音乐？',
+      '午后的时光最适合聊天了，你今天遇到了什么有趣的事吗？',
     ],
     evening: [
-      '💬 傍晚好！一天的工作结束了，来聊聊今天的心情吧。',
-      '🌆 下班路上辛苦了，想听首歌放松一下吗？',
+      '傍晚好！一天的工作结束了，来聊聊今天的心情吧。',
+      '下班路上辛苦了，想听首歌放松一下吗？',
     ],
     night: [
-      '💬 晚上好！结束了一天的工作，来聊聊今晚的心情吧。',
-      '🌙 夜深了，今天的你过得怎么样？有什么想和我分享的吗？',
+      '晚上好！结束了一天的工作，来聊聊今晚的心情吧。',
+      '夜深了，今天的你过得怎么样？有什么想和我分享的吗？',
     ],
     lateNight: [
-      '💬 这么晚还没睡，是有心事还是舍不得结束这一天？',
-      '🌃 深夜是和自己对话的最好时间，想聊聊什么吗？',
+      '这么晚还没睡，是有心事还是舍不得结束这一天？',
+      '深夜是和自己对话的最好时间，想聊聊什么吗？',
     ],
   },
 }
@@ -232,22 +232,22 @@ const genericReasonTemplates = [
 
 const suggestionTemplates: Record<DjMode, string[]> = {
   dj: [
-    '🎵 推荐一首好听的歌',
-    '🎶 随便听听，随机播放',
-    '🎸 来点摇滚',
-    '🎹 听点纯音乐',
-    '🎧 推荐最近热门歌曲',
-    '🎵 来一首治愈系的歌',
-    '🎤 推荐一首经典老歌',
-    '🎼 想要节奏感强的歌',
+    '推荐一首好听的歌',
+    '随便听听，随机播放',
+    '来点摇滚',
+    '听点纯音乐',
+    '推荐最近热门歌曲',
+    '来一首治愈系的歌',
+    '推荐一首经典老歌',
+    '想要节奏感强的歌',
   ],
   chat: [
-    '💬 聊聊今天的心情',
-    '🎵 推荐几首适合放松的歌',
+    '聊聊今天的心情',
+    '推荐几首适合放松的歌',
     '☕ 推荐一首适合下午听的歌',
-    '🌙 推荐一首适合夜晚的歌',
-    '🎶 推荐一首最近很火的歌',
-    '💡 帮我推荐一首励志歌曲',
+    '推荐一首适合夜晚的歌',
+    '推荐一首最近很火的歌',
+    '帮我推荐一首励志歌曲',
   ],
 }
 
@@ -266,8 +266,8 @@ export const generateGreeting = (mode: DjMode, weatherStr?: string): string => {
   const templates = greetingTemplates[mode]?.[period]
   if (!templates || templates.length === 0) {
     return mode === 'dj'
-      ? '🎧 欢迎收听 AI 音乐调频，我是你的专属音乐 DJ'
-      : '💬 你好，我是你的音乐知心伙伴'
+      ? '欢迎收听 AI 音乐调频，我是你的专属音乐 DJ'
+      : '你好，我是你的音乐知心伙伴'
   }
   let greeting = pick(templates)
 
@@ -357,22 +357,22 @@ export const generateSuggestChips = (mode: DjMode, weatherStr?: string): string[
   const weatherType = weatherStr ? detectWeatherType(weatherStr) : 'unknown'
 
   // 根据时段追加上下文标签
-  if (period === 'morning') base.push('☀️ 来点元气满满的歌')
+  if (period === 'morning') base.push('☀来点元气满满的歌')
   if (period === 'afternoon') base.push('☕ 推荐一首适合下午听的歌')
-  if (period === 'evening') base.push('🌆 推荐一首下班听的歌')
-  if (period === 'night' || period === 'lateNight') base.push('🌙 推荐一首适合深夜听的歌')
+  if (period === 'evening') base.push('推荐一首下班听的歌')
+  if (period === 'night' || period === 'lateNight') base.push('推荐一首适合深夜听的歌')
 
   // 根据天气追加上下文标签
-  if (weatherType === 'rainy') base.push('🌧️ 推荐一首适合雨天听的歌')
-  if (weatherType === 'snowy') base.push('❄️ 推荐一首适合雪天听的歌')
-  if (weatherType === 'sunny') base.push('☀️ 推荐一首适合晴天听的歌')
+  if (weatherType === 'rainy') base.push('推荐一首适合雨天听的歌')
+  if (weatherType === 'snowy') base.push('❄推荐一首适合雪天听的歌')
+  if (weatherType === 'sunny') base.push('☀推荐一首适合晴天听的歌')
 
   // 如果有用户画像，追加个性化标签
   const profile = analyzeUserProfile()
   if (profile.topArtists.length > 0) {
-    base.push(`🎤 来一首 ${profile.topArtists[0]} 的歌`)
+    base.push(`来一首 ${profile.topArtists[0]} 的歌`)
     if (profile.topArtists.length > 1) {
-      base.push(`🎤 来一首 ${profile.topArtists[1]} 的歌`)
+      base.push(`来一首 ${profile.topArtists[1]} 的歌`)
     }
   }
 
@@ -393,11 +393,24 @@ export const recommendFromLoveList = (
 
   const period = getTimePeriod()
   const wt = weatherType ?? 'unknown'
+  const profile = analyzeUserProfile()
+  const topArtistsSet = new Set(profile.topArtists.map(a => a.toLowerCase()))
 
-  // 简单评分：时间 + 天气匹配度
+  // 多维评分：偏好歌手 + 历史播放频次 + 天气/时段关键词匹配度
   const scored = songs.map((song: any) => {
     let score = 0.5 // 基础分
-    // 近期播放的歌曲加分（后续可扩展）
+    const name = String(song.name || '').toLowerCase()
+    const singer = String(song.singer || '').toLowerCase()
+    const playKey = song.singer ? `${song.singer} - ${song.name}` : song.name
+    const playCount = profile.playCounts?.[playKey] || 0
+
+    if (singer && topArtistsSet.has(singer)) score += 0.2
+    if (playCount > 0) score += Math.min(0.15, playCount * 0.03)
+    if (wt === 'rainy' && /(雨|静|柔|夜|慢|folk|民谣)/.test(name)) score += 0.15
+    if (wt === 'sunny' && /(晴|阳光|夏|风|pop|快乐)/.test(name)) score += 0.15
+    if ((period === 'night' || period === 'lateNight') && /(夜|晚|星|月|眠|静)/.test(name)) score += 0.15
+    if (period === 'morning' && /(早|晨|光|醒|日)/.test(name)) score += 0.15
+
     return { song, score }
   })
 

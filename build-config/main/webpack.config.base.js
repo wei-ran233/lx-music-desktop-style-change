@@ -10,13 +10,17 @@ module.exports = {
     },
     path: path.join(__dirname, '../../dist'),
   },
-  externals: {
+  externals: [({ request }, callback) => {
+    if (!/^@earendil-works\/pi-ai(?:\/|$)/.test(request)) return callback()
+    const subpath = request.slice('@earendil-works/pi-ai'.length) || '/index'
+    callback(null, `commonjs ../node_modules/@earendil-works/pi-ai/dist${subpath}.js`)
+  }, {
     'font-list': 'font-list',
     'better-sqlite3': 'better-sqlite3',
     'electron-font-manager': 'electron-font-manager',
     bufferutil: 'bufferutil',
     'utf-8-validate': 'utf-8-validate',
-  },
+  }],
   resolve: {
     alias: {
       '@main': path.join(__dirname, '../../src/main'),

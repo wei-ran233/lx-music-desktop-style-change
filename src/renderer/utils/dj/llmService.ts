@@ -11,8 +11,9 @@
 import { djSettings } from '@renderer/store/dj'
 import { getUserProfilePromptString } from '@renderer/utils/dj/userProfile'
 import { buildDjIntroText, generateSuggestChips, generateChatRecommendation } from './templateEngine'
+import { hasLlmConfiguration, completeModelText } from './ai/modelsManager'
 import { runPiAiConversation } from './ai/streamHandler'
-import type { DjMode, ToolCall, StreamCallbacks, WeatherType, MusicCard } from './types'
+import type { DjMode, StreamCallbacks, WeatherType, MusicCard } from './types'
 
 const createAbortError = (): Error => {
   const err = new Error('请求已取消')
@@ -44,35 +45,6 @@ const wait = async(ms: number, signal?: AbortSignal): Promise<void> => {
 
     signal?.addEventListener('abort', handleAbort, { once: true })
   })
-}
-
-const createTimedSignal = (timeoutMs: number, parentSignal?: AbortSignal) => {
-  const controller = new AbortController()
-  let timedOut = false
-  const timer = setTimeout(() => {
-    timedOut = true
-    controller.abort()
-  }, timeoutMs)
-  const handleParentAbort = () => {
-    controller.abort()
-  }
-
-  if (parentSignal?.aborted) {
-    controller.abort()
-  } else {
-    parentSignal?.addEventListener('abort', handleParentAbort, { once: true })
-  }
-
-  return {
-    signal: controller.signal,
-    cleanup() {
-      clearTimeout(timer)
-      parentSignal?.removeEventListener('abort', handleParentAbort)
-    },
-    isTimeout() {
-      return timedOut
-    },
-  }
 }
 
 // ─── 令牌桶限流器 ───────────────────────────────────────
@@ -173,11 +145,19 @@ interface ModelInfo {
 }
 
 const MODEL_PRESETS: ModelInfo[] = [
+  ...[
+    ['openai', 'OpenAI', 'https://api.openai.com/v1', 'gpt-4o-mini'],
+    ['anthropic', 'Anthropic', 'https://api.anthropic.com', 'claude-sonnet-4-5'],
+    ['google', 'Google Gemini', 'https://generativelanguage.googleapis.com', 'gemini-2.5-flash'],
+    ['groq', 'Groq', 'https://api.groq.com/openai/v1', 'llama-3.3-70b-versatile'],
+    ['opencode-go', 'OpenCode Go', 'https://opencode.ai/zen/go/v1', 'glm-5.2'],
+    ['openrouter', 'OpenRouter', 'https://openrouter.ai/api/v1', 'openai/gpt-4o-mini'],
+  ].map(([id, name, defaultBaseUrl, defaultModel]) => ({ id, name, defaultBaseUrl, defaultModel, rateLimit: { maxTokens: 10, refillRate: 5 } })),
   {
     id: 'openai-compatible',
     name: 'OpenAI 兼容接口（通用）',
-    defaultBaseUrl: '',
-    defaultModel: '',
+    defaultBaseUrl: 'https://api.openai.com/v1',
+    defaultModel: 'gpt-4o-mini',
     rateLimit: { maxTokens: 10, refillRate: 5 },
   },
   {
@@ -298,80 +278,7 @@ class MemoryCache {
 
 const cache = new MemoryCache()
 
-/**
- * 从 LLM 返回的 tool call arguments 字符串中健壮地提取 JSON 对象
- * 兼容：前/后有空白、附加文本、多个对象拼接等异常情况
- */
-const extractJsonObject = (raw: string): Record<string, any> | null => {
-  if (!raw) return null
-  const trimmed = raw.trim()
-
-  // 1. 直接尝试完整解析
-  try {
-    const parsed = JSON.parse(trimmed)
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
-  } catch { /* continue */ }
-
-  // 2. 提取第一个 { 到最后一个 } 之间的内容再解析
-  const start = trimmed.indexOf('{')
-  const end = trimmed.lastIndexOf('}')
-  if (start > -1 && end > start) {
-    const candidate = trimmed.slice(start, end + 1)
-    try {
-      const parsed = JSON.parse(candidate)
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
-    } catch { /* continue */ }
-  }
-
-  // 3. 尝试多对象拼接（如 "{"a":1}{"b":2}"），取最后一个合法对象
-  const re = /\{[^{}]*\}/g
-  const matches = trimmed.match(re)
-  if (matches) {
-    for (let i = matches.length - 1; i >= 0; i--) {
-      try {
-        const parsed = JSON.parse(matches[i])
-        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return parsed
-      } catch { /* continue */ }
-    }
-  }
-
-  return null
-}
-
 // ─── 系统 Prompt 构建 ───────────────────────────────────
-
-const AVAILABLE_TOOLS = [
-  {
-    type: 'function',
-    function: {
-      name: 'search_and_play',
-      description: '在 LX 音乐库中搜索并切歌点播符合场景或意图的歌曲',
-      parameters: {
-        type: 'object',
-        properties: {
-          keyword: { type: 'string', description: '搜索关键词，如歌名或歌手' },
-          singer: { type: 'string', description: '歌手名称' },
-          genre: { type: 'string', description: '音乐风格类型' },
-          reason: { type: 'string', description: '推歌理由与场景匹配说明' },
-        },
-        required: ['keyword'],
-      },
-    },
-  },
-  {
-    type: 'function',
-    function: {
-      name: 'play_favorite',
-      description: '从用户的"我的喜爱"歌单中挑选合适曲目播放',
-      parameters: {
-        type: 'object',
-        properties: {
-          tag: { type: 'string', description: '匹配的情绪或风格标签' },
-        },
-      },
-    },
-  },
-]
 
 export const buildSystemPrompt = (mode: DjMode, weatherStr = '晴 22°C'): string => {
   const now = new Date()
@@ -403,18 +310,15 @@ ${profilePrompt}
     `.trim()
   }
 
-  const jsonInstruction = `
-【音乐推荐与推荐理由规范】（非常重要）
-1. 根据用户的指令与对话需求，你可以推荐 1 首或多首（如 2-4 首）真实的歌曲。
-2. 推荐时，请在对话文本中为每一首歌曲写出**简短精炼、具象化且富有说服力的推荐理由**。
-3. 在回复文本中，请务必用《歌曲名》格式标记推荐的每一首歌曲。
-4. 如果你在回复中推荐了歌曲，请在回复的末尾加上 JSON 数据，格式如下：
-\`\`\`json
-{"recommend_musics": [{"name": "歌曲名1", "singer": "歌手名1", "reason": "推荐理由1"}, {"name": "歌曲名2", "singer": "歌手名2", "reason": "推荐理由2"}]}
-\`\`\`
-`.trim()
+  const toolInstruction = `
+【音乐推荐与播放器操作】
+推荐真实歌曲时，优先调用 search_and_play 搜索并返回音乐卡片，使用 reason 说明推荐理由。
+仅在用户要求立即播放时设置 immediatePlay 为 true；普通推荐设置为 false。
+需要了解收藏偏好时使用 get_user_favorites；用户明确要求暂停或切歌时使用 control_player。
+工具返回后，根据实际结果自然回复。未找到或播放失败时如实说明，不编造执行结果。
+正文使用《歌曲名》标记歌曲，无需输出 JSON 或工具参数。`.trim()
 
-  return promptBody + '\n\n' + jsonInstruction
+  return promptBody + '\n\n' + toolInstruction
 }
 
 // ─── LLM 流式请求 ───────────────────────────────────────
@@ -429,14 +333,10 @@ export const sendLlmStreamMessage = async(
   mode: DjMode,
   weatherStr: string,
   callbacks: StreamCallbacks,
-  options?: { signal?: AbortSignal, weatherType?: WeatherType, onFoundMusicCard?: (card: MusicCard) => void },
+  options?: { sessionId?: string, signal?: AbortSignal, weatherType?: WeatherType, onFoundMusicCard?: (card: MusicCard) => void },
 ) => {
   const signal = options?.signal
-  const isLocal = djSettings.selectedModel === 'ollama' ||
-    djSettings.selectedModel === 'lmstudio' ||
-    djSettings.selectedModel === 'local-ollama' ||
-    djSettings.selectedModel === 'local-lmstudio'
-  const isConfigured = !!djSettings.apiKey || isLocal
+  const isConfigured = hasLlmConfiguration(djSettings)
 
   // 未配置 API Key 且非本地模型 → 直接使用模板引擎降级
   if (!isConfigured) {
@@ -446,6 +346,7 @@ export const sendLlmStreamMessage = async(
 
   let releaseRequestSlot: (() => void) | null = null
   try {
+    callbacks.onStatus?.({ phase: 'queued', text: '正在等待请求名额' })
     releaseRequestSlot = await acquireRequestSlot(signal)
     const systemPrompt = buildSystemPrompt(mode, weatherStr)
     const chatHistory = messages
@@ -453,9 +354,11 @@ export const sendLlmStreamMessage = async(
       .map(m => ({ role: m.role as 'user' | 'assistant', content: m.content }))
 
     await runPiAiConversation({
+      settings: djSettings,
+      sessionId: options?.sessionId,
       mode,
       weatherStr,
-      weatherType: options?.weatherType || 'sunny',
+      weatherType: options?.weatherType ?? 'sunny',
       systemPrompt,
       messages: chatHistory,
       callbacks,
@@ -467,8 +370,7 @@ export const sendLlmStreamMessage = async(
       callbacks.onError(createAbortError())
       return
     }
-    console.warn('[LLM] pi-ai 服务执行异常，降级到模板引擎:', err)
-    await fallbackToTemplate(messages, mode, weatherStr, callbacks, signal)
+    callbacks.onError(err instanceof Error ? err : new Error('模型请求失败'))
   } finally {
     releaseRequestSlot?.()
   }
@@ -538,14 +440,14 @@ const fallbackToTemplate = async(
  * 获取建议标签（优先缓存，LLM 失败时降级到模板引擎）
  */
 export const fetchDynamicSuggestions = async(weatherStr: string, mode: DjMode): Promise<string[]> => {
-  const cacheKey = `suggestions_${mode}_${weatherStr}`
+  const cacheKey = `suggestions_${djSettings.selectedModel}_${djSettings.customModelName}_${djSettings.baseUrl}_${mode}_${weatherStr}`
 
   // 检查缓存
   const cached = cache.get<string[]>(cacheKey)
   if (cached) return cached
 
   // 未配置 API Key → 直接使用模板引擎
-  if (!djSettings.apiKey) {
+  if (!hasLlmConfiguration(djSettings)) {
     const chips = generateSuggestChips(mode, weatherStr)
     cache.set(cacheKey, chips, 2 * 60 * 1000) // 2 分钟缓存
     return chips
@@ -555,39 +457,14 @@ export const fetchDynamicSuggestions = async(weatherStr: string, mode: DjMode): 
   let releaseRequestSlot: (() => void) | null = null
   try {
     releaseRequestSlot = await acquireRequestSlot()
-    const modelName = djSettings.activeModel || 'gpt-4o-mini'
-    let baseUrl = djSettings.baseUrl
-    if (!baseUrl) {
-      const preset = MODEL_PRESETS.find(p => p.id === djSettings.selectedModel)
-      baseUrl = preset?.defaultBaseUrl ?? ''
-    }
-    baseUrl = baseUrl.endsWith('/') ? baseUrl : `${baseUrl}/`
-    const endpoint = `${baseUrl}chat/completions`
-
     const prompt = `你是一个助手。请根据当前的模式（${mode === 'dj' ? '电台DJ' : '知心聊天'}）、天气情况（${weatherStr}）以及当前日期时间（${new Date().toLocaleString()}），随机生成 4 个适合用户在聊天框发送的简短提问或点歌指令（每条指令控制在 12 个字以内），必须以 JSON 数组格式返回（只返回数组本身，如 ["指令1", "指令2", "指令3", "指令4"]，不要有任何多余的文本）。`
 
-    const response = await fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${djSettings.apiKey}`,
-      },
-      body: JSON.stringify({
-        model: modelName,
-        messages: [{ role: 'user', content: prompt }],
-        temperature: 0.9,
-      }),
-      signal: AbortSignal.timeout(10000),
-    })
-
-    if (!response.ok) throw new Error(`HTTP ${response.status}`)
-    const data = await response.json()
-    const content = data.choices?.[0]?.message?.content || ''
+    const content = await completeModelText(djSettings, prompt, AbortSignal.timeout(10000))
 
     const match = content.match(/\[(.*)\]/s)
     if (match) {
       const arr = JSON.parse(`[${match[1]}]`)
-      if (Array.isArray(arr) && arr.length >= 4) {
+      if (Array.isArray(arr) && arr.length >= 4 && arr.every(item => typeof item === 'string' && item.trim())) {
         const result = arr.slice(0, 4)
         cache.set(cacheKey, result, 5 * 60 * 1000)
         return result

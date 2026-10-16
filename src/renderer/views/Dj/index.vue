@@ -10,7 +10,7 @@
     <div :class="[$style.sidebar, { [$style.sidebarCollapsed]: !isSidebarOpen }]">
       <div :class="$style.sidebarHeader">
         <button :class="$style.newChatBtn" @click="startNewChat">
-          <span>+</span>
+          <DjIcon name="plus" />
           <span v-if="isSidebarOpen">新建对话</span>
         </button>
       </div>
@@ -19,48 +19,61 @@
         <button
           :class="[$style.historyTab, { [$style.activeHistoryTab]: historyCategory === 'dj' }]"
           @click="historyCategory = 'dj'"
-        >📻 DJ 调频</button>
+        ><DjIcon name="radio" /> DJ 调频</button>
         <button
           :class="[$style.historyTab, { [$style.activeHistoryTab]: historyCategory === 'chat' }]"
           @click="historyCategory = 'chat'"
-        >💬 聊天历史</button>
+        ><DjIcon name="chat" /> 聊天历史</button>
         <button
           :class="[$style.historyTab, { [$style.activeHistoryTab]: historyCategory === 'recommend' }]"
           @click="historyCategory = 'recommend'"
-        >🎶 推荐点播</button>
+        ><DjIcon name="music" /> 推荐点播</button>
       </div>
 
+      <div v-if="isSidebarOpen" :class="$style.historySearch">
+        <DjIcon name="search" />
+        <input v-model="historyQuery" placeholder="搜索历史对话" aria-label="搜索历史对话" />
+        <button v-if="historyQuery" type="button" :class="$style.clearQueryBtn" aria-label="清除搜索" @click="historyQuery = ''"><DjIcon name="close" /></button>
+      </div>
       <div v-if="isSidebarOpen" :class="$style.historyList" class="scroll">
-        <div
-          v-for="item in currentHistoryList"
-          :key="item.id"
-          :class="[$style.historyItem, { [$style.activeHistoryItem]: activeHistoryId === item.id }]"
-          @click="onSelectHistory(item)"
-        >
-          <span :class="$style.itemIcon">{{ item.mode === 'dj' ? '📻' : '💬' }}</span>
-          <div :class="$style.itemMeta">
-            <span :class="$style.itemTitle">
-              <span :class="[$style.modeBadge, $style['badge-' + item.mode]]">
-                {{ item.mode === 'dj' ? 'DJ' : '聊天' }}
-              </span>
-              {{ item.title }}
-            </span>
-            <span :class="$style.itemDate">{{ item.date }}</span>
-          </div>
-          <div :class="$style.itemActions">
-            <button
-              v-if="item.type === 'recommend'"
-              :class="$style.directPlayBtn"
-              title="直接播放"
-              @click.stop="directPlay(item)"
-            >▶</button>
-            <button
-              :class="$style.deleteItemBtn"
-              title="删除记录"
-              @click.stop="deleteHistory(item)"
-            >🗑️</button>
-          </div>
+        <div v-if="groupedHistory.length && !historyQuery" :class="$style.historyListBar">
+          <span>共 {{ currentHistoryList.length }} 条记录</span>
+          <button type="button" :class="$style.clearCategoryBtn" title="清空当前分类历史" @click="clearCategoryHistory"><DjIcon name="trash" /> 清空</button>
         </div>
+        <p v-if="!groupedHistory.length" :class="$style.historyEmpty">{{ historyQuery ? '没有匹配的记录' : '还没有记录，从一首歌开始新的对话' }}</p>
+        <section v-for="group in groupedHistory" :key="group.label"><h3 :class="$style.historyGroup">{{ group.label }}</h3>
+          <div
+            v-for="item in group.items"
+            :key="item.id"
+            :class="[$style.historyItem, { [$style.activeHistoryItem]: activeHistoryId === item.id }]"
+            @click="onSelectHistory(item)"
+          >
+            <span :class="$style.itemIcon"><DjIcon :name="item.type === 'recommend' ? 'music' : (item.mode === 'dj' ? 'radio' : 'chat')" /></span>
+            <div :class="$style.itemMeta">
+              <span :class="$style.itemTitle">
+                <span :class="[$style.modeBadge, $style['badge-' + item.mode]]">
+                  {{ item.type === 'recommend' ? '点播' : (item.mode === 'dj' ? 'DJ' : '聊天') }}
+                </span>
+                {{ item.title }}
+              </span>
+              <span :class="$style.itemDate">{{ item.singer ? `${item.singer} · ${item.date}` : item.date }}</span>
+            </div>
+            <div :class="$style.itemActions">
+              <button v-if="item.type !== 'recommend'" type="button" :class="$style.directPlayBtn" title="重命名对话" @click.stop="beginRename(item)"><DjIcon name="edit" /></button>
+              <button
+                v-if="item.type === 'recommend'"
+                :class="$style.directPlayBtn"
+                title="直接播放"
+                @click.stop="onDirectPlayHistory(item)"
+              ><DjIcon name="play" /></button>
+              <button
+                :class="$style.deleteItemBtn"
+                title="删除记录"
+                @click.stop="deleteHistory(item)"
+              ><DjIcon name="trash" /></button>
+            </div>
+          </div>
+        </section>
       </div>
     </div>
 
@@ -73,11 +86,11 @@
             :class="$style.sidebarToggleBtn"
             :title="isSidebarOpen ? '收起侧边栏' : '展开侧边栏'"
             @click="isSidebarOpen = !isSidebarOpen"
-          >☰</button>
-          <div :class="$style.activeModelBadge" title="当前生效的大模型">
-            <span>🤖</span>
+          ><DjIcon name="menu" /></button>
+          <button type="button" :class="$style.activeModelBadge" title="配置当前模型" @click="showSettingModal = true">
+            <span><DjIcon name="model" /></span>
             <span>{{ activeModelName }}</span>
-          </div>
+          </button>
         </div>
 
         <div :class="$style.topBarCenter">
@@ -85,28 +98,62 @@
             <button
               :class="[$style.pillBtn, { [$style.activePill]: mode === 'dj' }]"
               @click="switchMode('dj')"
-            >🎧 DJ 模式</button>
+            ><DjIcon name="headphones" /> DJ 模式</button>
             <button
               :class="[$style.pillBtn, { [$style.activePill]: mode === 'chat' }]"
               @click="switchMode('chat')"
-            >💬 聊天模式</button>
+            ><DjIcon name="chat" /> 聊天模式</button>
           </div>
         </div>
 
         <div :class="$style.topBarRight">
+          <button
+            v-if="mode === 'dj'"
+            type="button"
+            :class="[$style.quickActionBtn, { [$style.quickActionActive]: djSettings.autoContinue }]"
+            :title="djSettings.autoContinue ? '自动连播已开启（点击切换）' : '自动连播已关闭（点击开启）'"
+            @click="toggleAutoContinue"
+          >
+            <DjIcon name="radio" />
+            <span>{{ djSettings.autoContinue ? '连播中' : '连播关' }}</span>
+          </button>
+          <button
+            v-if="mode === 'dj'"
+            type="button"
+            :class="$style.quickActionBtn"
+            :disabled="isGenerating"
+            title="让 AI DJ 推荐并播放下一首"
+            @click="requestNextDjSong"
+          >
+            <DjIcon name="skip" />
+            <span>切歌推新</span>
+          </button>
+          <button
+            type="button"
+            :class="[$style.settingIconBtn, { [$style.iconBtnActive]: isSpeechEnabled }]"
+            :title="isSpeechEnabled ? '语音播报已开启（点击静音）' : '语音播报已关闭（点击开启）'"
+            @click="toggleSpeechEnabled"
+          >
+            <DjIcon :name="isSpeechEnabled ? 'volume' : 'mute'" />
+          </button>
+          <button type="button" :class="$style.settingIconBtn" title="播放队列" :aria-expanded="showQueue" @click="showQueue = !showQueue"><DjIcon name="queue" /></button>
           <button :class="$style.settingIconBtn" title="AI DJ 设置" @click="showSettingModal = true">
-            ⚙️
+            <DjIcon name="settings" />
           </button>
         </div>
       </div>
 
+      <div v-if="generationStatus.text" :class="[$style.executionStatus, { [$style.statusError]: generationStatus.phase === 'error' }]" role="status" aria-live="polite"><span :class="{ [$style.statusBusy]: isGenerating }"></span>{{ generationStatus.text }}</div>
+
       <!-- 1. 居中新对话 Landing View -->
       <div v-if="!hasMessages" :class="$style.landingView">
         <div :class="$style.landingContainer">
-          <h1 :class="$style.landingTitle">{{ aiOpeningGreeting }}</h1>
+          <div :class="$style.stationMark"><DjIcon name="record" /></div>
+          <h1 :class="$style.landingTitle">{{ mode === 'dj' ? '为此刻，选一首歌' : '今天想聊些什么？' }}</h1>
+          <p :class="$style.openingCopy">{{ aiOpeningGreeting }}</p>
 
           <div :class="$style.centerWeatherBadge">
-            <span>🌤️</span>
+            <span><DjIcon name="weather" /></span>
             <span>{{ currentDateStr }} | {{ city }}天气：<strong>{{ weatherDisplay }}</strong></span>
           </div>
 
@@ -114,24 +161,26 @@
             <div :class="$style.inputBoxContainer">
               <div v-if="activeFeatureTag" :class="$style.activeTagChip">
                 <span>{{ activeFeatureTag.label }}</span>
-                <button :class="$style.removeTagBtn" @click="activeFeatureTag = null">✕</button>
+                <button :class="$style.removeTagBtn" aria-label="关闭" @click="activeFeatureTag = null"><DjIcon name="close" /></button>
               </div>
 
-              <input
+              <textarea
                 v-model="inputMessage"
-                type="text"
+                rows="1"
+                aria-label="消息内容"
                 :placeholder="activeFeatureTag ? activeFeatureTag.placeholder : '输入想听的歌、歌手、心情或任何问题...'"
                 :class="$style.chatInput"
                 :disabled="isGenerating"
-                @keyup.enter="handleSendClick"
-              />
+                @keydown="onComposerKeydown"
+                @input="resizeComposer"
+              ></textarea>
 
               <div :class="$style.plusMenuContainer">
-                <button :class="$style.plusBtn" title="附加功能" @click="showPlusMenu = !showPlusMenu">+</button>
+                <button :class="$style.plusBtn" title="附加功能" @click="showPlusMenu = !showPlusMenu"><DjIcon name="plus" /></button>
                 <transition name="fade">
                   <div v-if="showPlusMenu" :class="$style.plusDropdown" @mouseleave="showPlusMenu = false">
-                    <button :class="$style.dropdownItem" @click="attachFeatureTag('search')">🔍 AI 聚合搜索</button>
-                    <button :class="$style.dropdownItem" @click="attachFeatureTag('play')">🎵 快捷点歌</button>
+                    <button :class="$style.dropdownItem" @click="attachFeatureTag('search')"><DjIcon name="search" /> AI 聚合搜索</button>
+                    <button :class="$style.dropdownItem" @click="attachFeatureTag('play')"><DjIcon name="music" /> 快捷点歌</button>
                   </div>
                 </transition>
               </div>
@@ -141,7 +190,7 @@
                 :title="isGenerating ? '停止生成' : '发送'"
                 @click="handleComposerButtonClick"
               >
-                {{ isGenerating ? '×' : '↑' }}
+                <DjIcon :name="isGenerating ? 'stop' : 'send'" />
               </button>
             </div>
 
@@ -153,33 +202,33 @@
                 :title="chipText"
                 @click="applySuggestion(chipText)"
               >{{ chipText }}</button>
-              <button :class="[$style.chip, $style.refreshChip]" title="刷新推荐选项" @click="refreshSuggestions">🔄 换一换</button>
+              <button :class="[$style.chip, $style.refreshChip]" title="刷新推荐选项" @click="refreshSuggestions"><DjIcon name="refresh" /> 换一换</button>
             </div>
           </div>
         </div>
       </div>
 
       <!-- 2. 对话流视图 -->
-      <div v-else :class="$style.streamBody" class="scroll">
+      <div v-else ref="streamRef" :class="$style.streamBody" class="scroll" aria-live="polite" aria-relevant="additions text" @scroll="onStreamScroll">
         <div :class="$style.streamWeatherHeader">
-          <span>🌤️ {{ currentDateStr }} | {{ city }}天气：{{ weatherDisplay }} | 当前模式：{{ mode === 'dj' ? '🎧 DJ 电台' : '💬 知心聊天' }}</span>
+          <span><DjIcon name="weather" /> {{ currentDateStr }} | {{ city }}天气：{{ weatherDisplay }} | 当前模式：{{ mode === 'dj' ? 'DJ 电台' : '知心聊天' }}</span>
         </div>
 
         <div :class="$style.messagesStream">
           <div v-for="(msg, index) in messageList" :key="index" :class="[$style.messageRow, $style[msg.sender]]">
-            <div :class="$style.avatar">{{ msg.sender === 'user' ? '👤' : (mode === 'dj' ? '📻' : '💬') }}</div>
+            <div :class="$style.avatar"><DjIcon :name="msg.sender === 'user' ? 'user' : (mode === 'dj' ? 'radio' : 'chat')" /></div>
             <div :class="$style.bubble">
               <div v-if="msg.sender === 'ai'" :class="$style.bubbleHeader">
                 <span :class="[$style.bubbleTag, $style['tag-' + (mode === 'dj' ? 'dj' : 'chat')]]">
-                  {{ mode === 'dj' ? '🎧 AI 电台' : '💬 AI 助手' }}
+                  <DjIcon :name="mode === 'dj' ? 'headphones' : 'chat'" /> {{ mode === 'dj' ? 'AI 电台' : 'AI 助手' }}
                 </span>
-                <span v-if="isGenerating && index === messageList.length - 1" :class="$style.typingHint">正在思考...</span>
+                <span v-if="isGenerating && index === messageList.length - 1" :class="$style.typingHint">{{ generationStatus.text }}</span>
               </div>
 
               <!-- 深度思考过程折叠组件 -->
               <div v-if="msg.thinkingText" :class="$style.thinkingBox">
                 <div :class="$style.thinkingHeader" @click="msg.isThinkingFolded = !msg.isThinkingFolded">
-                  <span :class="$style.thinkingTitle">🧠 深度思考过程</span>
+                  <span :class="$style.thinkingTitle"><DjIcon name="thinking" /> 深度思考过程</span>
                   <span :class="$style.thinkingToggle">{{ msg.isThinkingFolded ? '展开 ▼' : '收起 ▲' }}</span>
                 </div>
                 <div v-show="!msg.isThinkingFolded" :class="$style.thinkingContent">
@@ -187,56 +236,87 @@
                 </div>
               </div>
 
-              <p>{{ msg.text }}</p>
+              <MessageContent v-if="msg.sender === 'ai'" :text="msg.text" />
+              <p v-else>{{ msg.text }}</p>
+              <button v-if="msg.failed && index === messageList.length - 1" type="button" :class="$style.retryBtn" :disabled="isGenerating" @click="retryMessage(index)"><DjIcon name="refresh" /> 重试这条消息</button>
 
               <!-- 音乐推荐卡片（单首纵向 / 多首横向滑动适配） -->
               <div v-if="msg.musicCards && msg.musicCards.length" :class="[$style.musicCardList, { [$style.musicCardListMulti]: msg.musicCards.length > 1 }]">
-                <div v-for="(card, cardIdx) in msg.musicCards" :key="cardIdx" :class="$style.musicCard">
+                <div v-for="(card, cardIdx) in msg.musicCards" :key="cardIdx" :class="[$style.musicCard, { [$style.musicCardPlaying]: isCardCurrentlyPlaying(card) }]">
                   <div :class="$style.vinylContainer">
                     <div :class="$style.albumCover">
                       <img v-if="card.pic || card.meta?.picUrl" :src="card.pic || card.meta?.picUrl" :class="$style.albumCoverImg" />
-                      <span v-else>🎵</span>
+                      <span v-else><DjIcon name="music" /></span>
                     </div>
-                    <div :class="[$style.vinylDisc, { [$style.spinning]: isPlayingMusic }]">
+                    <div :class="[$style.vinylDisc, { [$style.spinning]: isCardCurrentlyPlaying(card) }]">
                       <div :class="$style.vinylCenterLabel"></div>
                     </div>
                   </div>
                   <div :class="$style.musicMeta">
-                    <div :class="$style.songTitle">{{ card.name }}</div>
+                    <div :class="$style.songTitleRow">
+                      <span :class="$style.songTitle">{{ card.name }}</span>
+                      <span v-if="card.source" :class="$style.sourceBadge">{{ card.source.toUpperCase() }}</span>
+                    </div>
                     <div :class="$style.artist">{{ card.singer }}</div>
-                    <div v-if="card.reason" :class="$style.recommendReason">💡 {{ card.reason }}</div>
+                    <div v-if="card.reason" :class="$style.recommendReason"><DjIcon name="light" /> {{ card.reason }}</div>
                   </div>
-                  <button :class="$style.playBtn" @click="toggleMusicPlay(card)">▶ 播放</button>
+                  <div :class="$style.musicActions">
+                    <button :class="$style.playBtn" @click="toggleMusicPlay(card)"><DjIcon name="play" /> {{ isCardCurrentlyPlaying(card) ? '播放中' : '播放' }}</button>
+                    <button :class="$style.queueSongBtn" title="加入稍后播放队列" @click="enqueueMusic(card)"><DjIcon name="plus" /> 稍后播</button>
+                    <button
+                      :class="[$style.favSongBtn, { [$style.favSongActive]: isMusicCardLoved(card) }]"
+                      :title="isMusicCardLoved(card) ? '已在我的喜爱中' : '收藏到我的喜爱'"
+                      @click="onFavoriteMusic(card)"
+                    >
+                      <DjIcon name="heart" />
+                    </button>
+                  </div>
                 </div>
               </div>
 
-              <button :class="$style.deleteMsgBtn" title="删除此条消息" @click="deleteMessage(index)">🗑️</button>
+              <div :class="$style.messageToolbar">
+                <button v-if="msg.text" type="button" :class="$style.msgActionBtn" title="复制消息内容" @click="copyMessageText(msg.text, index)">
+                  <DjIcon :name="copiedMsgIndex === index ? 'check' : 'copy'" />
+                  <span>{{ copiedMsgIndex === index ? '已复制' : '复制' }}</span>
+                </button>
+                <button v-if="msg.sender === 'ai' && msg.text && msg.text !== '...'" type="button" :class="$style.msgActionBtn" title="朗读此条回复" @click="speakMessageText(msg.text)">
+                  <DjIcon name="voice" />
+                  <span>朗读</span>
+                </button>
+                <button type="button" :class="[$style.msgActionBtn, $style.msgDeleteAction]" title="删除此条消息" @click="deleteMessage(index)">
+                  <DjIcon name="trash" />
+                  <span>删除</span>
+                </button>
+              </div>
             </div>
           </div>
         </div>
       </div>
 
+      <button v-if="hasMessages && !followStream" type="button" :class="$style.latestBtn" @click="jumpToLatest">回到最新消息 <DjIcon name="send" /></button>
       <!-- 底部固定输入框 -->
       <div v-if="hasMessages" :class="$style.bottomInputArea">
         <div :class="$style.inputBoxContainer">
           <div v-if="activeFeatureTag" :class="$style.activeTagChip">
             <span>{{ activeFeatureTag.label }}</span>
-            <button :class="$style.removeTagBtn" @click="activeFeatureTag = null">✕</button>
+            <button :class="$style.removeTagBtn" aria-label="关闭" @click="activeFeatureTag = null"><DjIcon name="close" /></button>
           </div>
-          <input
+          <textarea
             v-model="inputMessage"
-            type="text"
+            rows="1"
+            aria-label="消息内容"
             :placeholder="activeFeatureTag ? activeFeatureTag.placeholder : '输入想听的歌、歌手、心情或任何问题...'"
             :class="$style.chatInput"
             :disabled="isGenerating"
-            @keyup.enter="handleSendClick"
-          />
+            @keydown="onComposerKeydown"
+            @input="resizeComposer"
+          ></textarea>
           <div :class="$style.plusMenuContainer">
-            <button :class="$style.plusBtn" title="附加功能" @click="showPlusMenu = !showPlusMenu">+</button>
+            <button :class="$style.plusBtn" title="附加功能" @click="showPlusMenu = !showPlusMenu"><DjIcon name="plus" /></button>
             <transition name="fade">
               <div v-if="showPlusMenu" :class="$style.plusDropdown" @mouseleave="showPlusMenu = false">
-                <button :class="$style.dropdownItem" @click="attachFeatureTag('search')">🔍 AI 聚合搜索</button>
-                <button :class="$style.dropdownItem" @click="attachFeatureTag('play')">🎵 快捷点歌</button>
+                <button :class="$style.dropdownItem" @click="attachFeatureTag('search')"><DjIcon name="search" /> AI 聚合搜索</button>
+                <button :class="$style.dropdownItem" @click="attachFeatureTag('play')"><DjIcon name="music" /> 快捷点歌</button>
               </div>
             </transition>
           </div>
@@ -245,23 +325,32 @@
             :title="isGenerating ? '停止生成' : '发送'"
             @click="handleComposerButtonClick"
           >
-            {{ isGenerating ? '×' : '↑' }}
+            <DjIcon :name="isGenerating ? 'stop' : 'send'" />
           </button>
         </div>
       </div>
     </div>
 
+    <Teleport to="body"><div v-if="renameTarget" :class="$style.renameOverlay" @click.self="renameTarget = null"><form :class="$style.renameDialog" role="dialog" aria-modal="true" aria-label="重命名对话" @submit.prevent="commitRename"><h3>重命名对话</h3><input v-model="renameTitle" maxlength="80" aria-label="对话名称" autofocus @keydown.esc="renameTarget = null" /><div><button type="button" @click="renameTarget = null">取消</button><button type="submit" :disabled="!renameTitle.trim()">保存名称</button></div></form></div></Teleport>
+    <QueueDrawer v-if="showQueue" @close="showQueue = false" />
     <DjSettingModal v-model:visible="showSettingModal" @save="onSaveSetting" />
   </div>
 </template>
 
 <script>
-import { ref, computed, onMounted, onUnmounted } from '@common/utils/vueTools'
+import { ref, computed, watch, nextTick, onMounted, onUnmounted } from '@common/utils/vueTools'
+import DjIcon from '@renderer/components/common/SvgIcon.vue'
+import { hasLlmConfiguration } from '@renderer/utils/dj/ai/modelsManager'
+import MessageContent from './components/MessageContent.vue'
+import QueueDrawer from './components/QueueDrawer.vue'
 import DjSettingModal from './components/DjSettingModal.vue'
-import { djSettings } from '@renderer/store/dj'
+import { djSettings, saveDjSettings } from '@renderer/store/dj'
 import { fetchDynamicSuggestions } from '@renderer/utils/dj/llmService'
-import { stopDjSpeech, setDjActionHandler } from '@renderer/core/player/djAudio'
+import { synthesizeSpeech } from '@renderer/utils/dj/ttsService'
+import { playDjSpeech, stopDjSpeech, setDjActionHandler } from '@renderer/core/player/djAudio'
 import { onDjAction } from '@renderer/utils/ipc'
+import { clipboardWriteText } from '@common/utils/electron'
+import { musicInfo, isPlay } from '@renderer/store/player/state'
 import { useDjChat, setDjMode, setDjPageActive } from '@renderer/composables/useDjChat'
 import { useDjHistory } from '@renderer/composables/useDjHistory'
 import { useDjWeather } from '@renderer/composables/useDjWeather'
@@ -271,9 +360,35 @@ import { dialog } from '@renderer/plugins/Dialog'
 
 export default {
   name: 'DjChatGPTIntegratedView',
-  components: { DjSettingModal },
+  components: { DjSettingModal, DjIcon, QueueDrawer, MessageContent },
   setup() {
+    const streamRef = ref(null)
+    const followStream = ref(true)
+    const renameTarget = ref(null)
+    const renameTitle = ref('')
+    const resizeComposer = (event) => {
+      const input = event.target
+      input.style.height = 'auto'
+      input.style.height = `${Math.min(input.scrollHeight, 144)}px`
+    }
+    const onComposerKeydown = (event) => {
+      if (event.key !== 'Enter' || event.shiftKey || event.isComposing || event.keyCode === 229) return
+      event.preventDefault()
+      handleSendClick()
+    }
+    const onStreamScroll = () => {
+      const el = streamRef.value
+      if (el) followStream.value = el.scrollHeight - el.scrollTop - el.clientHeight < 80
+    }
+    const jumpToLatest = () => {
+      followStream.value = true
+      const el = streamRef.value
+      if (el) el.scrollTop = el.scrollHeight
+    }
+    const beginRename = (item) => { renameTarget.value = item; renameTitle.value = item.title }
+    const commitRename = () => { if (renameTarget.value) renameHistory(renameTarget.value, renameTitle.value); renameTarget.value = null }
     const isSidebarOpen = ref(true)
+    const showQueue = ref(false)
     const mode = ref('dj')
     const showSettingModal = ref(false)
     const currentDateStr = ref('')
@@ -291,6 +406,11 @@ export default {
       messageList,
       inputMessage,
       isGenerating,
+      generationStatus,
+      setConversationId,
+      enqueueMusicCard,
+      isMusicCardLoved,
+      favoriteMusicCard,
       isPlayingMusic,
       hasMessages,
       activeFeatureTag,
@@ -306,6 +426,9 @@ export default {
 
     const {
       historyCategory,
+      historyQuery,
+      groupedHistory,
+      renameHistory,
       activeHistoryId,
       currentHistoryList,
       saveCurrentSession,
@@ -313,6 +436,7 @@ export default {
       selectHistory,
       directPlay: historyDirectPlay,
       deleteHistory: rawDeleteHistory,
+      clearCurrentCategoryHistory,
       startNewChat: historyStartNewChat,
     } = history
 
@@ -324,7 +448,18 @@ export default {
 
     const city = computed(() => djSettings.city || '北京')
     const activeModelName = computed(() => {
-      return djSettings.activeModel || djSettings.selectedModel || '未配置'
+      return hasLlmConfiguration(djSettings) ? ([djSettings.customModelName, djSettings.localAiModel, djSettings.activeModel, djSettings.selectedModel].find(value => !!value)) : '本地推荐 · 配置模型后开始聊天'
+    })
+
+    watch(() => [messageList.value.length, messageList.value.at(-1)?.text, messageList.value.at(-1)?.thinkingText, messageList.value.at(-1)?.musicCards?.length], async() => {
+      if (!followStream.value) return
+      await nextTick()
+      jumpToLatest()
+    })
+    watch(inputMessage, async(value) => {
+      if (value) return
+      await nextTick()
+      document.querySelectorAll('textarea[aria-label="消息内容"]').forEach(input => { input.style.height = 'auto' })
     })
 
     // 自动刷新天气
@@ -404,6 +539,10 @@ export default {
         clearInterval(currentTimeTimer)
         currentTimeTimer = null
       }
+      if (copyResetTimer) {
+        clearTimeout(copyResetTimer)
+        copyResetTimer = null
+      }
     })
 
     // 切换模式
@@ -444,13 +583,19 @@ export default {
     }
 
     // 选择历史记录
+    const onDirectPlayHistory = (item) => {
+      historyDirectPlay(item, (card) => {
+        chatToggleMusicPlay(card).catch(err => { console.error(err) })
+      })
+    }
+
     const onSelectHistory = (item) => {
       if (item.type === 'recommend') {
-        historyDirectPlay(item, (card) => {
-          chatToggleMusicPlay(card).catch(err => { console.error(err) })
-        })
+        onDirectPlayHistory(item)
         return
       }
+      stopGeneration()
+      setConversationId(item.id)
       const messages = selectHistory(item)
       if (messages) {
         messageList.value = messages
@@ -459,6 +604,79 @@ export default {
       if (item.mode) {
         mode.value = item.mode
         setDjMode(item.mode)
+      }
+    }
+
+    // 清空当前分类历史
+    const clearCategoryHistory = async() => {
+      const catNames = { dj: 'DJ 调频', chat: '聊天历史', recommend: '推荐点播' }
+      const confirm = await dialog.confirm({
+        message: `确定清空「${catNames[historyCategory.value]}」下的全部记录吗？`,
+        confirmButtonText: '清空',
+        cancelButtonText: '取消',
+      })
+      if (!confirm) return
+      clearCurrentCategoryHistory()
+      startNewChat()
+    }
+
+    // 快捷控制：连播开关、语音播报开关、DJ 一键切歌
+    const isSpeechEnabled = computed(() => mode.value === 'dj' ? djSettings.enableDjSpeech : djSettings.enableChatSpeech)
+    const toggleSpeechEnabled = () => {
+      if (mode.value === 'dj') {
+        djSettings.enableDjSpeech = !djSettings.enableDjSpeech
+        if (!djSettings.enableDjSpeech) stopDjSpeech()
+      } else {
+        djSettings.enableChatSpeech = !djSettings.enableChatSpeech
+        if (!djSettings.enableChatSpeech) stopDjSpeech()
+      }
+      void saveDjSettings(djSettings)
+    }
+
+    const toggleAutoContinue = () => {
+      djSettings.autoContinue = !djSettings.autoContinue
+      void saveDjSettings(djSettings)
+    }
+
+    const requestNextDjSong = () => {
+      if (isGenerating.value) return
+      handleSendClick({ query: '请根据当前氛围继续推荐并播放下一首好听的歌' })
+    }
+
+    // 判断某张音乐卡片是否正在由主播放器播放
+    const isCardCurrentlyPlaying = (card) => {
+      if (!isPlay.value || !musicInfo.name) return false
+      if (card.id && musicInfo.id === card.id) return true
+      return musicInfo.name === card.name && (!card.singer || musicInfo.singer === card.singer)
+    }
+
+    // 收藏音乐卡片到“我的喜爱”
+    const onFavoriteMusic = async(card) => {
+      try {
+        await favoriteMusicCard(card)
+      } catch (err) {
+        void dialog({ message: err.message })
+      }
+    }
+
+    // 消息工具栏：复制文本、朗读单条消息
+    const copiedMsgIndex = ref(-1)
+    let copyResetTimer = null
+    const copyMessageText = (text, index) => {
+      if (!text) return
+      clipboardWriteText(text)
+      copiedMsgIndex.value = index
+      if (copyResetTimer) clearTimeout(copyResetTimer)
+      copyResetTimer = setTimeout(() => { copiedMsgIndex.value = -1 }, 1800)
+    }
+
+    const speakMessageText = async(text) => {
+      if (!text) return
+      try {
+        const audioUrl = await synthesizeSpeech(text)
+        playDjSpeech(audioUrl)
+      } catch (err) {
+        console.error('朗读消息失败:', err)
       }
     }
 
@@ -472,6 +690,7 @@ export default {
 
     // 发送消息（包装，自动保存历史）
     const handleSendClick = (options) => {
+      followStream.value = true
       void chatSendMessage(
         mode.value,
         weatherDisplay.value,
@@ -503,6 +722,20 @@ export default {
       saveCurrentSession(messageList.value, mode.value)
     }
 
+    const enqueueMusic = async(card) => {
+      try {
+        await enqueueMusicCard(card)
+        showQueue.value = true
+      } catch (error) { void dialog({ message: error.message }) }
+    }
+    const retryMessage = (index) => {
+      const previousUser = messageList.value.slice(0, index).map((message, position) => ({ message, position })).reverse().find(item => item.message.sender === 'user')
+      if (!previousUser) return
+      const query = previousUser.message.text
+      messageList.value.splice(previousUser.position)
+      handleSendClick({ query })
+    }
+
     // 附加功能标签
     const attachFeatureTag = (type) => {
       chatAttachFeatureTag(type)
@@ -516,7 +749,24 @@ export default {
     }
 
     return {
+      djSettings,
+      historyQuery,
+      groupedHistory,
+      streamRef,
+      followStream,
+      renameTarget,
+      renameTitle,
+      resizeComposer,
+      onComposerKeydown,
+      onStreamScroll,
+      jumpToLatest,
+      beginRename,
+      commitRename,
       isSidebarOpen,
+      showQueue,
+      enqueueMusic,
+      retryMessage,
+      generationStatus,
       mode,
       showSettingModal,
       currentDateStr,
@@ -539,7 +789,19 @@ export default {
       switchMode,
       startNewChat,
       onSelectHistory,
+      onDirectPlayHistory,
       deleteHistory,
+      clearCategoryHistory,
+      isSpeechEnabled,
+      toggleSpeechEnabled,
+      toggleAutoContinue,
+      requestNextDjSong,
+      isCardCurrentlyPlaying,
+      isMusicCardLoved,
+      onFavoriteMusic,
+      copiedMsgIndex,
+      copyMessageText,
+      speakMessageText,
       handleSendClick,
       handleComposerButtonClick,
       refreshSuggestions,
@@ -568,19 +830,8 @@ export default {
   transition: background 0.4s ease;
 
   &.dj {
-    background: linear-gradient(135deg, var(--color-primary-light-900-alpha-200) 0%, var(--color-content-background) 100%);
+    background: var(--color-main-background);
     border: 1px solid var(--color-primary-light-500-alpha-300);
-
-    &:before {
-      content: '';
-      position: absolute;
-      top: -120px;
-      right: -120px;
-      width: 460px;
-      height: 460px;
-      background: radial-gradient(circle, var(--color-primary-alpha-300) 0%, transparent 70%);
-      pointer-events: none;
-    }
   }
 
   &.chat.weather-sunny {
@@ -594,7 +845,7 @@ export default {
 
 /* 左侧侧边栏 */
 .sidebar {
-  width: 240px;
+  width: 208px;
   flex: none;
   background: var(--color-primary-light-900-alpha-300);
   border-right: 1px solid var(--color-primary-light-500-alpha-300);
@@ -618,7 +869,7 @@ export default {
   width: 100%;
   padding: 9px 12px;
   border-radius: 10px;
-  border: 1px dashed var(--color-primary-light-400-alpha-600);
+  border: 1px solid var(--color-primary-light-400-alpha-600);
   background: var(--color-content-background);
   color: var(--color-primary);
   font-weight: 600;
@@ -761,6 +1012,7 @@ export default {
 
 /* 右侧主界面 */
 .mainContent {
+  min-width: 0;
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -769,7 +1021,10 @@ export default {
 }
 
 .topBar {
-  height: 52px;
+  min-height: 56px;
+  flex: none;
+  gap: 12px;
+  border-bottom: 1px solid var(--color-primary-light-500-alpha-300);
   padding: 0 16px;
   display: flex;
   align-items: center;
@@ -800,6 +1055,10 @@ export default {
 }
 
 .activeModelBadge {
+  max-width: 220px;
+  overflow: hidden;
+  white-space: nowrap;
+  span { overflow: hidden; text-overflow: ellipsis; }
   display: flex;
   align-items: center;
   gap: 6px;
@@ -868,7 +1127,7 @@ export default {
 
 .landingContainer {
   width: 100%;
-  max-width: 680px;
+  max-width: 640px;
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -877,7 +1136,7 @@ export default {
 
 .landingTitle {
   margin: 0;
-  font-size: 24px;
+  font-size: clamp(20px, 2.6vw, 28px);
   font-weight: 600;
   color: var(--color-font);
   text-align: center;
@@ -909,8 +1168,8 @@ export default {
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 8px 14px;
-  border-radius: 28px;
+  padding: 12px 14px;
+  border-radius: 16px;
   border: 1px solid var(--color-primary-light-400-alpha-600);
   background: var(--color-content-background);
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
@@ -944,6 +1203,7 @@ export default {
 }
 
 .chatInput {
+  min-width: 0;
   flex: 1;
   border: none;
   background: transparent;
@@ -1100,6 +1360,7 @@ export default {
 
 /* 对话流视图 */
 .streamBody {
+  min-height: 0;
   flex: 1;
   padding: 16px 40px;
   overflow-y: auto;
@@ -1124,6 +1385,7 @@ export default {
 }
 
 .messageRow {
+  max-width: 100%;
   display: flex;
   gap: 12px;
 
@@ -1132,6 +1394,8 @@ export default {
     flex-direction: row-reverse;
 
     .bubble {
+  min-width: 0;
+  overflow-wrap: anywhere;
       background: var(--color-primary);
       color: #fff;
       border-radius: 18px 18px 2px 18px;
@@ -1191,7 +1455,7 @@ export default {
   border-radius: 8px;
   color: #fff;
 
-  &.tag-dj { background: #9333ea; }
+  &.tag-dj { background: var(--color-primary); }
   &.tag-chat { background: var(--color-primary); }
 }
 
@@ -1324,6 +1588,8 @@ export default {
 }
 
 .bottomInputArea {
+  box-sizing: border-box;
+  flex: none;
   padding: 12px 40px 20px 40px;
   background: transparent;
   max-width: 760px;
@@ -1374,4 +1640,188 @@ export default {
   border-top: 1px dashed rgba(0, 0, 0, 0.08);
   padding-top: 6px;
 }
+
+.stationMark {
+  width: 82px;
+  height: 82px;
+  display: grid;
+  place-items: center;
+  color: var(--color-primary);
+  font-size: 70px;
+  margin-bottom: 2px;
+}
+.historyEmpty {
+  padding: 24px 12px;
+  font-size: 12px;
+  color: var(--color-font-label);
+  line-height: 1.8;
+  text-align: center;
+}
+.chatGptLayout button:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 3px;
+}
+@media (max-width: 1050px) {
+  .sidebar { width: 176px; }
+  .topBar { flex-wrap: wrap; padding: 8px 12px; }
+  .topBarLeft { gap: 6px; }
+  .activeModelBadge { max-width: 140px; }
+  .pillBtn { padding: 6px 9px; }
+  .landingView { padding: 20px 16px; }
+  .streamBody { padding: 16px; }
+  .bottomInputArea { padding: 12px 16px; }
+}
+@media (max-width: 760px) {
+  .sidebar { width: 148px; }
+  .topBarCenter { order: 3; flex-basis: 100%; }
+  .landingContainer { gap: 14px; }
+  .stationMark { width: 56px; height: 56px; font-size: 48px; }
+  .centerWeatherBadge { padding: 6px 8px; font-size: 11px; }
+  .chip { max-width: 160px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .chatGptLayout, .chatGptLayout * { animation: none !important; transition: none !important; }
+}
+
+.topBarRight { display: flex; align-items: center; gap: 6px; }
+.quickActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  border-radius: 14px;
+  border: 1px solid var(--color-primary-light-500-alpha-400);
+  background: var(--color-primary-light-900-alpha-300);
+  color: var(--color-font);
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all @transition-fast;
+
+  &:hover:not(:disabled) {
+    border-color: var(--color-primary);
+    color: var(--color-primary);
+    background: var(--color-primary-light-800-alpha-400);
+  }
+  &:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+.quickActionActive {
+  background: var(--color-primary-light-800-alpha-500);
+  border-color: var(--color-primary);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.iconBtnActive {
+  color: var(--color-primary);
+  background: var(--color-primary-light-900-alpha-300);
+}
+.activeModelBadge { cursor: pointer; font-family: inherit; }
+.openingCopy { margin: -6px 0 0; max-width: 52ch; color: var(--color-font-label); font-size: 12px; line-height: 1.8; text-align: center; }
+.executionStatus { display: flex; align-items: center; gap: 8px; padding: 8px 20px; font-size: 12px; line-height: 1.5; color: var(--color-primary); background: var(--color-primary-alpha-100); flex: none; > span { width: 6px; height: 6px; border-radius: 50%; background: currentColor; } &.statusError { color: #b44338; background: rgba(180,67,56,.06); } }
+.statusBusy { animation: statusPulse 1.3s ease-in-out infinite; }
+@keyframes statusPulse { 50% { opacity: .25; } }
+.songTitleRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.sourceBadge {
+  font-size: 9.5px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--color-primary-light-800-alpha-500);
+  color: var(--color-primary);
+  font-weight: 600;
+}
+.musicCardPlaying {
+  border-color: var(--color-primary);
+  box-shadow: 0 4px 18px var(--color-primary-light-700-alpha-500);
+}
+.musicActions { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; }
+.queueSongBtn, .retryBtn, .favSongBtn { border: 1px solid var(--color-primary-alpha-300); background: transparent; color: var(--color-primary); border-radius: 8px; padding: 6px 10px; font-size: 12px; cursor: pointer; transition: all @transition-fast; }
+.favSongBtn {
+  padding: 6px 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-font-label);
+  border-color: var(--color-primary-light-500-alpha-300);
+  &:hover { color: #ec4141; border-color: rgba(236, 65, 65, 0.45); }
+}
+.favSongActive {
+  color: #ec4141;
+  border-color: rgba(236, 65, 65, 0.5);
+  background: rgba(236, 65, 65, 0.08);
+}
+.retryBtn { margin-top: 10px; &:disabled { opacity: .5; } }
+.messageToolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 8px;
+  padding-top: 6px;
+  border-top: 1px solid rgba(127, 127, 127, 0.12);
+  opacity: 0.65;
+  transition: opacity @transition-fast;
+}
+.bubble:hover .messageToolbar { opacity: 1; }
+.msgActionBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  opacity: 0.8;
+  transition: all @transition-fast;
+  &:hover { opacity: 1; background: rgba(127, 127, 127, 0.12); }
+}
+.msgDeleteAction:hover {
+  color: #e74c3c;
+}
+
+.chatInput { resize: none; max-height: 144px; min-height: 24px; line-height: 1.6; font-family: inherit; box-sizing: border-box; }
+.historySearch { display: flex; align-items: center; gap: 6px; margin: 4px 12px 8px; padding: 7px 8px; border: 1px solid var(--color-primary-alpha-200); border-radius: 6px; color: var(--color-primary); input { min-width: 0; width: 100%; background: transparent; border: none; color: var(--color-font); outline: none; font-size: 11px; } }
+.clearQueryBtn {
+  border: none;
+  background: transparent;
+  color: var(--color-font-label);
+  cursor: pointer;
+  padding: 0 2px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  &:hover { color: var(--color-font); }
+}
+.historyListBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 2px 8px 4px;
+  font-size: 11px;
+  color: var(--color-font-label);
+}
+.clearCategoryBtn {
+  border: none;
+  background: transparent;
+  color: var(--color-font-label);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  &:hover {
+    color: #e74c3c;
+    background: rgba(231, 76, 60, 0.08);
+  }
+}
+.historyGroup { margin: 12px 10px 6px; font-size: 11px; font-weight: 500; color: var(--color-font-label); }
+.latestBtn { position: absolute; right: 28px; bottom: 96px; z-index: 12; border: 1px solid var(--color-primary-alpha-300); border-radius: 14px; padding: 7px 12px; background: var(--color-main-background); color: var(--color-primary); cursor: pointer; font-size: 12px; }
+.renameOverlay { position: fixed; inset: 0; z-index: 10001; display: grid; place-items: center; background: rgba(0,0,0,.35); }
+.renameDialog { width: min(360px, 90vw); padding: 24px; border-radius: 12px; box-sizing: border-box; background: var(--color-main-background); color: var(--color-font); h3 { font-size: 16px; margin: 0 0 16px; } input { width: 100%; box-sizing: border-box; padding: 10px; border: 1px solid var(--color-primary); border-radius: 6px; color: inherit; background: transparent; } div { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; } button { padding: 7px 12px; border-radius: 6px; color: var(--color-primary); background: transparent; border: 1px solid var(--color-primary-alpha-300); cursor: pointer; } }
 </style>

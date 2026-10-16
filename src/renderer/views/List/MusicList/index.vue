@@ -12,7 +12,7 @@
           </svg>
         </div>
         <span v-if="list.length" :class="$style.playCountBadge">
-          🎧 {{ list.length }}
+          <svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M4 14v-3a8 8 0 0 1 16 0v3M4 13h3v8H4a2 2 0 0 1-2-2v-4a2 2 0 0 1 2-2Zm16 0h-3v8h3a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2Z" /></svg> {{ list.length }}
         </span>
       </div>
 
@@ -297,7 +297,11 @@
           </div>
           <div class="list-item-cell" style="flex: 0 0 28%;"><span class="select" :aria-label="item.meta.albumName">{{ item.meta.albumName }}</span></div>
           <div class="list-item-cell" style="flex: 0 0 15%; text-align: center;">
-            <span style="color: #ec4141; cursor: pointer;">❤️</span>
+            <span
+              :style="{ color: isLovedSong(item) ? '#ec4141' : 'var(--color-font-label)', cursor: 'pointer', opacity: isLovedSong(item) ? 1 : 0.45 }"
+              :title="isLovedSong(item) ? '已喜欢' : '添加到我的喜爱'"
+              @click.stop="toggleLoveSong(item)"
+            >{{ isLovedSong(item) ? '♥' : '♡' }}</span>
           </div>
           <div class="list-item-cell" style="flex: 0 0 15%;"><span class="no-select">{{ item.interval || '--/--' }}</span></div>
         </div>
@@ -744,6 +748,17 @@ export default {
       return selectedList.value.includes(item)
     }
 
+    const isLovedSong = (item) => {
+      const list = loveList?.list || []
+      return list.some(s => s.id === item.id || (s.name === item.name && s.singer === item.singer))
+    }
+
+    const toggleLoveSong = (item) => {
+      if (!isLovedSong(item)) {
+        void addListMusics(LIST_IDS.LOVE, [item])
+      }
+    }
+
     const toggleSelectItem = (item) => {
       const index = selectedList.value.indexOf(item)
       if (index > -1) {
@@ -952,6 +967,8 @@ export default {
       isAllSelected,
       toggleSelectAll,
       isSelected,
+      isLovedSong,
+      toggleLoveSong,
       toggleSelectItem,
       handlePlaySelected,
       handleBatchAddToPlaylist,
@@ -1151,7 +1168,7 @@ export default {
   font-size: 12px;
   padding: 6px 18px;
   border-radius: 18px;
-  background-color: #ec4141;
+  background-color: var(--color-primary);
   color: #fff;
   display: flex;
   align-items: center;
@@ -1220,7 +1237,7 @@ export default {
   font-size: 15px;
   font-weight: 700;
   color: var(--color-font) !important;
-  border-bottom: 3px solid #ec4141;
+  border-bottom: 3px solid var(--color-primary);
 }
 
 .tabBadge {
@@ -1357,8 +1374,8 @@ export default {
   width: 32px;
   height: 32px;
   border-radius: 8px;
-  background-color: #fde2e2;
-  color: #ec4141;
+  background-color: var(--color-primary-light-800-alpha-400);
+  color: var(--color-primary);
   border: none;
   cursor: pointer;
   display: flex;
@@ -1481,7 +1498,7 @@ export default {
 .batchCheckbox {
   width: 16px;
   height: 16px;
-  accent-color: #ec4141;
+  accent-color: var(--color-primary);
   cursor: pointer;
   margin-right: 8px;
 }

@@ -11,6 +11,15 @@ const isDev = process.env.NODE_ENV === 'development'
 
 module.exports = {
   target: 'electron-renderer',
+  // pi-ai publishes import-only exports. Load its ESM files through Electron's
+  // native Node loader; dev pages resolve from the app root, packaged pages
+  // from dist/. This also preserves lazy SDK loading without import contexts.
+  externals: [({ request }, callback) => {
+    if (!/^@earendil-works\/pi-ai(?:\/|$)/.test(request)) return callback()
+    const subpath = request.slice('@earendil-works/pi-ai'.length) || '/index'
+    const root = isDev ? './node_modules' : '../node_modules'
+    callback(null, `commonjs ${root}/@earendil-works/pi-ai/dist${subpath}.js`)
+  }],
   entry: {
     renderer: path.join(__dirname, '../../src/renderer/main.ts'),
   },

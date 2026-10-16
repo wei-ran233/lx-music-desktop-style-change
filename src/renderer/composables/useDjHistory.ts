@@ -17,12 +17,35 @@ import type { DjMode, HistoryItem, ChatMessage, MusicCard } from '@renderer/util
 export function useDjHistory() {
   const historyCategory = ref<'dj' | 'chat' | 'recommend'>('dj')
   const activeHistoryId = ref('')
+  const historyQuery = ref('')
 
   const currentHistoryList = computed(() => {
     if (historyCategory.value === 'dj') return djHistoryList
     if (historyCategory.value === 'chat') return chatHistoryList
     return recommendHistoryList
   })
+
+  const groupedHistory = computed(() => {
+    const query = historyQuery.value.trim().toLowerCase()
+    const today = new Date(); today.setHours(0, 0, 0, 0)
+    const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1)
+    const groups = ['今天', '昨天', '更早', '日期未知'].map(label => ({ label, items: [] as HistoryItem[] }))
+    for (const item of currentHistoryList.value) {
+      if (query && !`${item.title} ${item.singer ?? ''} ${(item.messages ?? []).map(message => message.text).join(' ')}`.toLowerCase().includes(query)) continue
+      const timestamp = item.updatedAt ?? Number(item.id.match(/(?:dj|chat|rec)-(\d{13})/)?.[1])
+      const group = !timestamp ? 3 : timestamp >= today.getTime() ? 0 : timestamp >= yesterday.getTime() ? 1 : 2
+      groups[group].items.push(item)
+    }
+    return groups.filter(group => group.items.length)
+  })
+
+  const renameHistory = (item: HistoryItem, title: string) => {
+    const trimmed = title.trim().slice(0, 80)
+    if (!trimmed) return
+    item.title = trimmed
+    item.customTitle = true
+    saveHistory()
+  }
 
   /** 保存当前会话到历史 */
   const saveCurrentSession = (messages: ChatMessage[], mode: DjMode) => {
@@ -49,6 +72,9 @@ export function useDjHistory() {
       return msgs.map(m => ({
         sender: m.sender,
         text: m.text,
+        failed: m.failed,
+        thinkingText: m.thinkingText,
+        isThinkingFolded: m.isThinkingFolded ?? true,
         musicCards: m.musicCards?.map(c => ({
           name: c.name,
           singer: c.singer,
@@ -77,6 +103,7 @@ export function useDjHistory() {
         mode,
         title: sessionTitle,
         date: timeStr,
+        updatedAt: now.getTime(),
         messages: serialized,
       })
     } else {
@@ -84,7 +111,8 @@ export function useDjHistory() {
       if (existing) {
         existing.messages = serialized
         existing.date = timeStr
-        existing.title = sessionTitle
+        existing.updatedAt = now.getTime()
+        if (!existing.customTitle) existing.title = sessionTitle
       } else {
         targetList.unshift({
           id: activeHistoryId.value,
@@ -92,6 +120,7 @@ export function useDjHistory() {
           mode,
           title: sessionTitle,
           date: timeStr,
+          updatedAt: now.getTime(),
           messages: serialized,
         })
       }
@@ -121,6 +150,7 @@ export function useDjHistory() {
         title: song.name,
         singer: song.singer || '精选歌手',
         date: timeStr,
+        updatedAt: now.getTime(),
       })
     })
 
@@ -146,7 +176,7 @@ export function useDjHistory() {
 
   /** 删除历史记录 */
   const deleteHistory = (item: HistoryItem) => {
-    const targetList = item.mode === 'dj'
+    const targetList = item.type === 'recommend' ? recommendHistoryList : item.mode === 'dj'
       ? djHistoryList
       : item.mode === 'chat'
         ? chatHistoryList
@@ -161,6 +191,18 @@ export function useDjHistory() {
     }
   }
 
+  /** 清空当前分类的历史记录 */
+  const clearCurrentCategoryHistory = () => {
+    const targetList = historyCategory.value === 'dj'
+      ? djHistoryList
+      : historyCategory.value === 'chat'
+        ? chatHistoryList
+        : recommendHistoryList
+    targetList.splice(0, targetList.length)
+    saveHistory()
+    activeHistoryId.value = ''
+  }
+
   /** 新对话 */
   const startNewChat = () => {
     activeHistoryId.value = ''
@@ -168,6 +210,9 @@ export function useDjHistory() {
 
   return {
     historyCategory,
+    historyQuery,
+    groupedHistory,
+    renameHistory,
     activeHistoryId,
     currentHistoryList,
     saveCurrentSession,
@@ -175,6 +220,7 @@ export function useDjHistory() {
     selectHistory,
     directPlay,
     deleteHistory,
+    clearCurrentCategoryHistory,
     startNewChat,
   }
 }

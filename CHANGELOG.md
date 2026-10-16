@@ -6,6 +6,14 @@ Project versioning adheres to [Semantic Versioning](http://semver.org/).
 Commit convention is based on [Conventional Commits](http://conventionalcommits.org).
 Change log format is based on [Keep a Changelog](http://keepachangelog.com/).
 
+## [2.12.3-beta.11](https://github.com/wei-ran233/lx-music-desktop-style-change/releases/tag/v2.12.3-beta.11) - 2026-10-15
+
+- 修复 OpenCode Go 在线模型读取和多协议接入，分离服务商与可搜索的模型选择。
+- 优化 AI 电台执行进度、失败重试、歌曲操作和播放队列抽屉，统一 SVG 图标。
+- 新增多行输入、安全 Markdown、推理折叠、滚动跟随控制及历史搜索和重命名。
+- 模型与网络 TTS 请求移入主进程，支持取消、超时和系统密钥环加密存储。
+- 修复生产构建的类型检查与 AI SDK 运行依赖打包，提供 Linux x86_64 AppImage 和 amd64 deb。
+
 ## [2.12.2](https://github.com/lyswhut/lx-music-desktop/compare/v2.12.1...v2.12.2) - 2026-05-01
 
 我们很高兴地宣布新项目 Any Listen 的桌面版已发布，目前已支持列表跟随本地文件自动更新、加载并播放WebDAV上的歌曲等功能，更多功能仍在积极开发中，桌面版与Web版将同步更新。

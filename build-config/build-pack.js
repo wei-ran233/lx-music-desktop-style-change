@@ -25,17 +25,8 @@ const options = {
     output: './build',
   },
   files: [
-    '!node_modules/**/*',
-    'node_modules/font-list',
-    'node_modules/better-sqlite3/lib',
-    'node_modules/better-sqlite3/package.json',
-    'node_modules/better-sqlite3/build/Release/better_sqlite3.node',
-    'node_modules/electron-font-manager/index.js',
-    'node_modules/electron-font-manager/package.json',
-    'node_modules/electron-font-manager/build/Release/font_manager.node',
-    'node_modules/node-gyp-build',
-    'node_modules/bufferutil',
-    'node_modules/utf-8-validate',
+    // pi-ai loads provider SDKs at runtime; electron-builder keeps production dependencies only.
+    'node_modules/**/*',
     'dist/**/*',
   ],
   asar: {
@@ -47,8 +38,8 @@ const options = {
   publish: [
     {
       provider: 'github',
-      owner: 'lyswhut',
-      repo: 'lx-music-desktop',
+      owner: 'wei-ran233',
+      repo: 'lx-music-desktop-style-change',
     },
   ],
 }

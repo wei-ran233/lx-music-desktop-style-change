@@ -16,8 +16,9 @@ import {
   generateChatRecommendation,
   recommendFromLoveList,
 } from '@renderer/utils/dj/templateEngine'
-import { searchMusicTrack, playMusicTrack } from '@renderer/utils/dj/ai/toolExecutor'
+import { searchMusicTrack, playMusicTrack, songIdentity } from '@renderer/utils/dj/ai/toolExecutor'
 import { addTempPlayList } from '@renderer/store/player/action'
+import { tempPlayList } from '@renderer/store/player/state'
 import { loveList } from '@renderer/store/list/state'
 import { addListMusics } from '@renderer/store/list/action'
 import { LIST_IDS } from '@common/constants'
@@ -30,7 +31,6 @@ const inputMessage = ref('')
 const isGenerating = ref(false)
 const generationStatus = ref<GenerationStatus>({ phase: 'idle', text: '' })
 let conversationSessionId: string = crypto.randomUUID()
-const isPlayingMusic = ref(false)
 const activeFeatureTag = ref<{ type: string, label: string, placeholder: string } | null>(null)
 const showPlusMenu = ref(false)
 // 当前模式（DJ / 聊天），模块级以便跨页面连播判断
@@ -68,6 +68,7 @@ const recommendedHistory: string[] = []
 
 const rememberRecommended = (name?: string) => {
   if (!name) return
+  name = songIdentity({ name })
   const idx = recommendedHistory.indexOf(name)
   if (idx > -1) recommendedHistory.splice(idx, 1)
   recommendedHistory.unshift(name)
@@ -76,7 +77,7 @@ const rememberRecommended = (name?: string) => {
 
 const hasBeenRecommended = (name?: string): boolean => {
   if (!name) return false
-  return recommendedHistory.includes(name)
+  return recommendedHistory.includes(songIdentity({ name }))
 }
 
 /** 重置去重记录（新建对话时调用） */
@@ -251,7 +252,12 @@ export function useDjChat() {
       // 配置了 API Key → 走 LLM
       await handleLlmStream(rawQuery, mode, weatherStr, weatherType, aiMsgIndex, onSaveSession, abortController.signal, generationId)
     } catch (err) {
-      if (!isAbortError(err)) console.error('AI DJ 发送消息失败:', err)
+      if (!isAbortError(err) && generationId === activeGenerationId) {
+        generationStatus.value = { phase: 'error', text: '推荐失败，请稍后重试' }
+        messageList.value[aiMsgIndex].text = '推荐请求未完成，请检查网络或服务配置后重试。'
+        messageList.value[aiMsgIndex].failed = true
+        onSaveSession?.()
+      }
     } finally {
       if (generationId === activeGenerationId && generationStatus.value.phase !== 'error') generationStatus.value = { phase: 'complete', text: '本次回复已完成' }
       clearActiveGeneration(generationId, abortController)
@@ -279,26 +285,35 @@ export function useDjChat() {
     // 过滤掉已推荐过的歌曲，避免连续推送重复
     const freshRecommendations = loveRecommendations.filter(r => !hasBeenRecommended(r.name))
 
-    let targetKws: Array<{ name: string, singer?: string }> = []
-    if (isGreeting) {
-      targetKws = [{ name: '晴天' }]
-    } else if (freshRecommendations.length >= 1) {
-      // 使用本地推荐（优先未推荐过的），带上歌手便于匹配原唱
-      targetKws = freshRecommendations.map(r => ({ name: r.name, singer: r.singer }))
-    } else {
-      // 无新鲜推荐时：从喜爱歌单随机选几首（避免固定 fallback 到同一首）
-      const fallback = loveRecommendations.length >= 1
-        ? loveRecommendations
-        : [{ name: rawQuery, singer: undefined }]
-      targetKws = [...fallback].sort(() => Math.random() - 0.5).slice(0, 2)
+    // Recognizable catalog titles are only candidates; every displayed card must
+    // still resolve to an exact title/artist match in the real music catalog.
+    const classics = [
+      { name: '晴天', singer: '周杰伦' }, { name: '稻香', singer: '周杰伦' },
+      { name: '红豆', singer: '王菲' }, { name: '后来', singer: '刘若英' },
+      { name: '倔强', singer: '五月天' }, { name: '平凡之路', singer: '朴树' },
+      { name: '小幸运', singer: '田馥甄' }, { name: '十年', singer: '陈奕迅' },
+      { name: '遇见', singer: '孙燕姿' }, { name: '隐形的翅膀', singer: '张韶涵' },
+      { name: '起风了', singer: '买辣椒也用券' }, { name: '光年之外', singer: '邓紫棋' },
+    ]
+    const shuffled = [...classics].sort(() => Math.random() - 0.5)
+    const targetKws = [
+      ...(!isGreeting && !/推荐|继续|下一首|听歌|音乐|适合/.test(rawQuery) ? [{ name: rawQuery, singer: undefined }] : []),
+      ...shuffled, ...freshRecommendations,
+    ].filter(t => !hasBeenRecommended(t.name))
+    const fullResults: LX.Music.MusicInfo[] = []
+    const seen = new Set<string>()
+    for (let offset = 0; offset < targetKws.length && fullResults.length < 2; offset += 3) {
+      const batch = await Promise.all(targetKws.slice(offset, offset + 3).map(async t => executeMusicSearchFull(t.name, t.singer)))
+      if (isStaleGeneration()) return
+      for (const full of batch) {
+        if (!full || seen.has(songIdentity(full)) || hasBeenRecommended(full.name)) continue
+        seen.add(songIdentity(full))
+        fullResults.push(full)
+        if (fullResults.length === 2) break
+      }
     }
-
-    // 搜索歌曲（支持多首），同时保留完整 MusicInfo 供自动播放
-    const fullResults = (await Promise.all(
-      targetKws.slice(0, 3).map(async t => executeMusicSearchFull(t.name, t.singer)),
-    )).filter(Boolean) as LX.Music.MusicInfo[]
-    if (isStaleGeneration()) return
     const songMetas = fullResults.map(full => markRaw({
+      track: full,
       name: full.name,
       singer: full.singer,
       reason: '',
@@ -328,8 +343,8 @@ export function useDjChat() {
         : `为您推荐这首《${songMetas[0].name}》：${reason}`
     } else {
       aiText = mode === 'dj'
-        ? `为您搜索了关于"${rawQuery}"的相关推荐，请聆听：`
-        : `关于"${rawQuery}"，我找到了一些音乐推荐：`
+        ? '暂未找到可核实且不重复的歌曲，请稍后重试或指定歌名和歌手。'
+        : '暂未找到可核实且不重复的歌曲，请稍后重试或指定歌名和歌手。'
     }
 
     // 为歌曲补充推荐理由
@@ -351,11 +366,11 @@ export function useDjChat() {
     if (isStaleGeneration()) return
     onSaveSession?.()
 
-    // DJ 模式自动播放首推歌曲（直接使用完整 MusicInfo，避免二次搜索）
+    // DJ 模式播放本轮推荐，并将剩余歌曲加入稍后播放队列。
     if (isStaleGeneration()) return
     if (mode === 'dj' && djSettings.djAutoPlay && fullResults.length > 0) {
       try {
-        await playMusicCard(songMetas[0], fullResults[0])
+        await playRecommendationBatch(songMetas, isStaleGeneration)
       } catch (err) {
         console.error('DJ 自动播放失败:', err)
       }
@@ -369,10 +384,13 @@ export function useDjChat() {
       if (isStaleGeneration()) return
       try {
         const audioUrl = await synthesizeSpeech(aiText, { signal })
-        if (isStaleGeneration()) return
+        if (isStaleGeneration() || !(mode === 'dj' ? djSettings.enableDjSpeech : djSettings.enableChatSpeech)) {
+          if (audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl)
+          return
+        }
         playDjSpeech(audioUrl)
       } catch (err) {
-        if (!isAbortError(err)) console.error('TTS 播放异常:', err)
+        if (!isAbortError(err)) generationStatus.value = { phase: 'error', text: `语音播报失败：${(err as Error).message}` }
       }
     }
   }
@@ -418,10 +436,15 @@ export function useDjChat() {
           // 如果 LLM 回复中没有音乐卡片，尝试从文本提取（支持多首）
           if (!messageList.value[aiMsgIndex].musicCards?.length) {
             const songNames = extractRecommendedSongList(fullText)
-            const uniqueNames = [...new Set(songNames)]
+            const uniqueNames = [...new Set(songNames)].filter(name => !hasBeenRecommended(name)).slice(0, 6)
+            const seen = new Set<string>()
             const songMetas = (await Promise.all(
               uniqueNames.map(async name => executeMusicSearch(name)),
-            )).filter(Boolean) as MusicCard[]
+            )).filter((card): card is MusicCard => {
+              if (!card || seen.has(songIdentity(card))) return false
+              seen.add(songIdentity(card))
+              return true
+            })
             if (isStaleGeneration()) return
             if (songMetas.length) {
               messageList.value[aiMsgIndex].musicCards = songMetas
@@ -447,12 +470,12 @@ export function useDjChat() {
 
           onSaveSession?.()
 
-          // DJ 模式自动播放首推歌曲
+          // DJ 模式播放本轮推荐，包括工具已经播放首曲的情况。
           if (isStaleGeneration()) return
-          if (mode === 'dj' && djSettings.djAutoPlay && cards?.length && !cards.some(card => card.played)) {
+          if (mode === 'dj' && djSettings.djAutoPlay && cards?.length) {
             try {
               generationStatus.value = { phase: 'playing', text: '正在准备播放歌曲' }
-              await playMusicCard(cards[0])
+              await playRecommendationBatch(cards, isStaleGeneration)
             } catch (err) {
               console.error('DJ 自动播放失败:', err)
             }
@@ -467,7 +490,10 @@ export function useDjChat() {
             try {
               generationStatus.value = { phase: 'speaking', text: '正在准备语音播报' }
               const audioUrl = await synthesizeSpeech(textToSpeak, { signal })
-              if (isStaleGeneration()) return
+              if (isStaleGeneration() || !(mode === 'dj' ? djSettings.enableDjSpeech : djSettings.enableChatSpeech)) {
+                if (audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl)
+                return
+              }
               playDjSpeech(audioUrl)
             } catch (err) {
               if (!isAbortError(err)) console.error('TTS 播报异常:', err)
@@ -491,12 +517,13 @@ export function useDjChat() {
       },
       {
         sessionId: conversationSessionId,
+        excludedSongNames: [...recommendedHistory],
         signal,
         weatherType,
         onFoundMusicCard(card: MusicCard) {
           if (isStaleGeneration()) return
           const currentCards = messageList.value[aiMsgIndex].musicCards || []
-          if (!currentCards.some(c => c.name === card.name && c.singer === card.singer)) {
+          if (!currentCards.some(c => songIdentity(c) === songIdentity(card)) && !hasBeenRecommended(card.name)) {
             messageList.value[aiMsgIndex].musicCards = [...currentCards, card]
             messageList.value[aiMsgIndex].musicCard = card
           }
@@ -507,16 +534,14 @@ export function useDjChat() {
 
   /** 播放音乐卡片（内部方法，供自动播放复用；优先使用传入的完整 musicInfo） */
   const playMusicCard = async(musicCard: MusicCard, musicInfo?: LX.Music.MusicInfo | null) => {
-    isPlayingMusic.value = true
     const fullInfo = musicInfo ?? musicCard.track ?? await executeMusicSearchFull(musicCard.name, musicCard.singer)
-    if (fullInfo?.source) {
-      musicCard.track = fullInfo
-      musicCard.pic = fullInfo.meta?.picUrl ?? musicCard.pic
-      musicCard.source = fullInfo.source
-      musicCard.id = fullInfo.id
-      musicCard.played = true
-      await playMusicTrack(fullInfo)
-    }
+    if (!fullInfo?.source) throw new Error('未找到可播放的歌曲，请换一首重试')
+    musicCard.track = fullInfo
+    musicCard.pic = fullInfo.meta?.picUrl ?? musicCard.pic
+    musicCard.source = fullInfo.source
+    musicCard.id = fullInfo.id
+    await playMusicTrack(fullInfo)
+    musicCard.played = true
   }
 
   /** 播放音乐卡片 */
@@ -529,16 +554,44 @@ export function useDjChat() {
     addTempPlayList([{ listId: LIST_IDS.PLAY_LATER, musicInfo: info, isTop: false }])
   }
 
-  /** 收藏/取消收藏音乐卡片到“我的喜爱” */
+  const playRecommendationBatch = async(cards: MusicCard[], isStale: () => boolean) => {
+    // 先解析完整批次，避免首曲结束时后续歌曲仍未入队。
+    const tracks = await Promise.all(cards.map(async card => card.track ?? await executeMusicSearchFull(card.name, card.singer)))
+    if (isStale()) return
+    const playable = cards.filter((card, index) => {
+      const track = tracks[index]
+      if (!track?.source) return false
+      card.track = track
+      return true
+    })
+    if (!playable.length) throw new Error('未找到可播放的歌曲，请换一首重试')
+    const alreadyPlaying = playable.some(card => card.played)
+    if (!alreadyPlaying) {
+      await playMusicCard(playable[0])
+      if (isStale()) return
+    }
+    const remaining = playable.filter(card => !card.played)
+    if (remaining.length) {
+      addTempPlayList(remaining.map(card => ({
+        listId: LIST_IDS.PLAY_LATER,
+        musicInfo: card.track!,
+        isTop: false,
+      })))
+    }
+  }
+
+  /** 判断音乐卡片是否已收藏到“我的喜爱” */
   const isMusicCardLoved = (card: MusicCard): boolean => {
     const list = (loveList as any)?.list ?? []
     return list.some((item: any) =>
-      (card.id && item.id === card.id) ||
-      (item.name === card.name && (!card.singer || item.singer === card.singer)),
+      (card.id && item.id
+        ? item.id === card.id
+        : item.name === card.name && (!card.singer || item.singer === card.singer)),
     )
   }
 
   const favoriteMusicCard = async(card: MusicCard): Promise<boolean> => {
+    if (isMusicCardLoved(card)) return true
     const info = card.track ?? await executeMusicSearchFull(card.name, card.singer)
     if (!info) throw new Error('未找到该歌曲资源，无法收藏')
     card.track = info
@@ -551,6 +604,8 @@ export function useDjChat() {
 
   /** 删除消息 */
   const deleteMessage = (index: number) => {
+    // 流式回调按消息位置更新，删除前先终止，避免写入其他消息。
+    stopGeneration()
     messageList.value.splice(index, 1)
   }
 
@@ -608,7 +663,6 @@ export function useDjChat() {
     messageList,
     inputMessage,
     isGenerating,
-    isPlayingMusic,
     activeFeatureTag,
     showPlusMenu,
     hasMessages,
@@ -642,6 +696,8 @@ export const autoContinueRecommend = (): boolean => {
   // 仅 DJ 页面活跃且模式为 dj 时才允许自动连播
   if (!isDjActive() || isGenerating.value) return false
   if (!djSettings.autoContinue) return false
+  // 先交给主播放器消耗已有队列，整批推荐播完后再发起下一轮对话。
+  if (tempPlayList.length) return false
   if (!moduleSendMessage) return false
   const weather = getCurrentDjWeatherContext()
   // 静默推荐下一首

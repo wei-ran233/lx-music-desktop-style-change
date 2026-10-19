@@ -37,6 +37,7 @@ export const getUserTags = (): { genres: string[], artists: string[] } => loadUs
 
 export const saveUserTags = (tags: { genres: string[], artists: string[] }) => {
   try {
+    cachedProfile = null
     localStorage.setItem(USER_TAGS_STORAGE_KEY, JSON.stringify({
       genres: tags.genres.filter(Boolean).slice(0, 20),
       artists: tags.artists.filter(Boolean).slice(0, 20),
@@ -48,7 +49,7 @@ export const saveUserTags = (tags: { genres: string[], artists: string[] }) => {
 
 // 本地缓存
 let cachedProfile: UserTasteProfile | null = null
-let lastAnalyzedLoveListLength = -1
+let lastAnalyzedLoveListKey = ''
 
 // ─── 本地数据持久化 ────────────────────────────────────
 
@@ -122,6 +123,21 @@ const inferMood = (name: string): string | null => {
   return null
 }
 
+/** 按歌名/歌手及可推断的情绪、曲风匹配，不使用随机生成的推荐文案。 */
+export const matchesMusicPreference = (name: string, singer: string, query: string): boolean => {
+  const filter = query.trim().toLowerCase()
+  if (!filter) return true
+  const text = `${name} ${singer}`.toLowerCase()
+  if (text.includes(filter)) return true
+  for (const [genre, keywords] of Object.entries(genreKeywords)) {
+    if ((genre === filter || keywords.some(keyword => keyword.toLowerCase() === filter)) &&
+      keywords.some(keyword => text.includes(keyword.toLowerCase()))) return true
+  }
+  return moodKeywords.some(({ mood, keywords }) =>
+    (mood === filter || keywords.includes(filter)) && keywords.some(keyword => text.includes(keyword)),
+  )
+}
+
 // ─── 语种推断（从歌手/歌名特征） ───────────────────────
 
 const inferLang = (name: string, singer?: string): string | null => {
@@ -176,10 +192,10 @@ export const recordPlayedSong = (songName: string, singer?: string) => {
  */
 export const analyzeUserProfile = (): UserTasteProfile => {
   const songs = (loveList as any)?.list || []
-  const currentLength = songs.length
+  const currentKey = JSON.stringify(songs.map((song: any) => [song.id, song.name, song.singer, song.artist]))
 
   // 使用缓存（如果歌单没有变化）
-  if (cachedProfile && lastAnalyzedLoveListLength === currentLength) {
+  if (cachedProfile && lastAnalyzedLoveListKey === currentKey) {
     return cachedProfile
   }
 
@@ -327,7 +343,7 @@ export const analyzeUserProfile = (): UserTasteProfile => {
 
   // 更新缓存
   cachedProfile = profile
-  lastAnalyzedLoveListLength = currentLength
+  lastAnalyzedLoveListKey = currentKey
 
   if (topArtists.length > 0) {
     addProfileLog(`提取用户偏好画像: 最喜爱歌手 [${topArtists.join(', ')}]`)
@@ -363,7 +379,7 @@ export const getUserProfilePromptString = (): string => {
   if (aiSummary) {
     prompt += `\n【用户长效 AI 深度心理与审美画像】：${aiSummary}\n请在推荐歌曲、播报串词与对话交流时，自然贴合该画像的性格与情感特点。`
   } else {
-    prompt += '\n在推荐时请优先融入符合该审美偏好的歌曲或同风格宝藏作品。'
+    prompt += '\n在推荐时请优先融入符合该审美偏好的歌曲或同风格且大众熟悉的热门或经典作品。'
   }
 
   return prompt

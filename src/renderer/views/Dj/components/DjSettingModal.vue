@@ -185,6 +185,37 @@
                 <p :class="$style.fieldTip">{{ ttsChannelHint }}</p>
               </div>
 
+              <div :class="$style.formGroup">
+                <label>播报语言</label>
+                <select v-model="form.ttsLang" :class="$style.select">
+                  <option value="zh-CN">简体中文</option>
+                  <option value="zh-TW">繁体中文</option>
+                  <option value="en-US">English</option>
+                </select>
+              </div>
+              <div :class="$style.formGroup">
+                <button type="button" :class="$style.cancelBtn" :disabled="ttsTesting" @click="testTts">{{ ttsTesting ? '正在测试…' : '测试语音' }}</button>
+                <p v-if="ttsTestResult" role="status" :class="$style.fieldTip">{{ ttsTestResult }}</p>
+                <p :class="$style.fieldTip">使用当前填写的配置测试。云端播报由 AI 合成。</p>
+              </div>
+              <template v-if="form.ttsEngine === 'volcengine-v3-tts'">
+                <div :class="$style.formGroup">
+                  <label>火山官方音色（豆包 2.0）</label>
+                  <button type="button" :class="$style.cancelBtn" :disabled="voiceCatalogLoading" @click="refreshVoiceCatalog">{{ voiceCatalogLoading ? '正在读取官网…' : '刷新官方音色' }}</button>
+                  <p role="status" :class="$style.fieldTip">{{ voiceCatalogStatus }}</p>
+                  <input v-model="voiceCatalogQuery" type="search" placeholder="搜索音色名称、语言或 ID" aria-label="搜索火山音色" :class="$style.input" />
+                  <select v-model="form.ttsVoice" aria-label="火山音色列表" :class="$style.select">
+                    <option value="">Vivi 2.0（默认）</option>
+                    <option v-for="voice in visibleVolcengineVoices" :key="voice.id" :value="voice.id">{{ voice.name }}</option>
+                    <option v-if="form.ttsVoice && !volcengineVoices.some(v => v.id === form.ttsVoice)" :value="form.ttsVoice">自定义：{{ form.ttsVoice }}</option>
+                  </select>
+                  <p :class="$style.fieldTip">已载入 {{ volcengineVoices.length }} 个官方公开音色。选中后点击“测试语音”试听，实际可用性以账号资源权限为准。</p>
+                </div>
+                <div :class="$style.formGroup">
+                  <label>Resource ID（资源模型）</label>
+                  <input v-model="form.ttsResourceId" type="text" placeholder="seed-tts-2.0" :class="$style.input" />
+                </div>
+              </template>
               <!-- 发音人选择（大部分渠道通用） -->
               <div v-if="form.ttsEngine !== 'youdao-tts'" :class="$style.formGroup">
                 <label>播报发音人</label>
@@ -238,14 +269,14 @@
               </template>
 
               <!-- 语速 / 音调（部分渠道） -->
-              <div v-if="form.ttsEngine !== 'web-speech' && form.ttsEngine !== 'youdao-tts'" :class="$style.twoCol">
+              <div v-if="form.ttsEngine !== 'youdao-tts'" :class="$style.twoCol">
                 <div :class="$style.formGroup">
                   <label>语速 {{ form.ttsSpeed }}x</label>
                   <input v-model.number="form.ttsSpeed" type="range" min="0.5" max="2" step="0.1" :class="$style.slider" />
                 </div>
                 <div :class="$style.formGroup">
-                  <label>音调 {{ form.ttsPitch }}x</label>
-                  <input v-model.number="form.ttsPitch" type="range" min="0.5" max="2" step="0.1" :class="$style.slider" />
+                  <label>音调 {{ form.ttsPitch }}x（系统 / Azure）</label>
+                  <input v-model.number="form.ttsPitch" :disabled="!['web-speech', 'azure-tts'].includes(form.ttsEngine)" type="range" min="0.5" max="2" step="0.1" :class="$style.slider" />
                 </div>
               </div>
 
@@ -481,6 +512,10 @@ import DjIcon from '@renderer/components/common/SvgIcon.vue'
 import { completeModelText, isLocalModel } from '@renderer/utils/dj/ai/modelsManager'
 import { ref, reactive, computed, watch, onUnmounted } from '@common/utils/vueTools'
 import { djSettings, saveDjSettings, credentialStorage, profileLogs, clearProfileLogs, getDjBackupData, applyDjBackupData } from '@renderer/store/dj'
+import { sanitizeVoiceList } from '@common/dj/voiceCatalog'
+import { djRequest } from '@renderer/utils/dj/serviceBridge'
+import { VOLCENGINE_VOICES } from '@common/dj/voices'
+import { synthesizeSpeech } from '@renderer/utils/dj/ttsService'
 import { searchCities } from '@renderer/utils/dj/weatherService'
 import { analyzeUserProfile, getUserTags, saveUserTags } from '@renderer/utils/dj/userProfile'
 import { getModelPresets } from '@renderer/utils/dj/llmService'
@@ -539,25 +574,27 @@ export default {
     const popularCities = ['北京', '上海', '广州', '深圳', '成都', '杭州', '西安', '武汉']
 
     const ttsChannels = [
-      { id: 'web-speech', label: '本地语音（免 Key）', hint: '使用浏览器系统语音，无需任何配置，音色取决于操作系统' },
-      { id: 'youdao-tts', label: '有道翻译语音（免 Key）', hint: '免费无需 Key，音质一般但零成本，适合快速播报' },
-      { id: 'azure-tts', label: 'Azure 神经语音', hint: '微软云神经语音，音质自然，需 Azure 订阅 Key 和区域' },
+      { id: 'web-speech', label: '本地语音（免 Key）', hint: '依赖系统已安装的语音音色；Ubuntu/Electron 可能没有中文音色，请先测试，失败时改用云端语音' },
+      { id: 'youdao-tts', label: '有道翻译语音（免 Key）', hint: '非正式公共接口，仅限 100 字短句，不保证可用；长篇播报请选择正式云端服务' },
+      { id: 'azure-tts', label: 'Azure 神经语音', hint: '微软云神经语音，音质自然，需 Speech 资源专用 Key，区域必须与资源一致；中文音色可填 zh-CN-XiaoxiaoNeural' },
       { id: 'openai-tts', label: 'OpenAI TTS', hint: 'OpenAI tts-1 模型，需 OpenAI API Key' },
       { id: 'iflytek-tts', label: '讯飞 TTS', hint: '科大讯飞语音合成，需开放平台 AppID + ApiKey + ApiSecret' },
+      { id: 'volcengine-v3-tts', label: '火山引擎 · 豆包语音 2.0（新版 API Key）', hint: '新版控制台 API Key，无需 AppID；资源默认 seed-tts-2.0，音色可从官方列表选择并试听' },
       { id: 'volcengine-tts', label: '火山引擎 TTS', hint: '字节跳动语音合成，需火山引擎 AppID 和 Access Token' },
-      { id: 'custom-tts', label: '自定义 TTS', hint: '对接任意 OpenAI 兼容的 TTS 服务地址' },
+      { id: 'custom-tts', label: '自定义 TTS', hint: '填写完整的 OpenAI 兼容 /v1/audio/speech 地址，发送 tts-1 / input / voice / speed，接口必须返回音频' },
     ]
 
     const ttsChannelsMap = Object.fromEntries(ttsChannels.map(c => [c.id, c]))
     const ttsChannelHint = computed(() => ttsChannelsMap[form.ttsEngine]?.hint ?? '')
     const needsApiKey = computed(() => {
-      return ['openai-tts', 'azure-tts', 'volcengine-tts', 'iflytek-tts'].includes(form.ttsEngine)
+      return ['openai-tts', 'azure-tts', 'volcengine-tts', 'volcengine-v3-tts', 'iflytek-tts', 'custom-tts'].includes(form.ttsEngine)
     })
     const voicePlaceholder = computed(() => {
       switch (form.ttsEngine) {
         case 'azure-tts': return 'zh-CN-XiaoxiaoNeural'
         case 'iflytek-tts': return 'xiaoyan'
         case 'volcengine-tts': return 'BV001_streaming'
+        case 'volcengine-v3-tts': return 'zh_female_vv_uranus_bigtts'
         case 'openai-tts': return 'alloy'
         default: return 'zh-CN-XiaoxiaoNeural'
       }
@@ -578,6 +615,105 @@ export default {
     ]
 
     const form = reactive({ ...djSettings, modelList: djSettings.modelList.map(model => ({ ...model })) })
+    const voiceCacheKey = 'lx_dj_volcengine_voice_catalog_v1'
+    const volcengineVoices = ref([...VOLCENGINE_VOICES])
+    const voiceCatalogQuery = ref('')
+    const visibleVolcengineVoices = computed(() => {
+      const query = voiceCatalogQuery.value.trim().toLowerCase()
+      const matches = volcengineVoices.value.filter(voice => !query || `${voice.name} ${voice.id} ${voice.language}`.toLowerCase().includes(query))
+      const selected = volcengineVoices.value.find(voice => voice.id === form.ttsVoice)
+      if (selected && !matches.some(voice => voice.id === selected.id)) matches.unshift(selected)
+      return matches
+    })
+    const voiceCatalogLoading = ref(false)
+    const voiceCatalogStatus = ref('内置音色目录；点击刷新可读取官网新增音色')
+    let voiceCatalogUpdatedAt = 0
+    let voiceCatalogController = null
+    try {
+      const cached = JSON.parse(localStorage.getItem(voiceCacheKey) ?? 'null')
+      const voices = sanitizeVoiceList(cached?.voices)
+      if (voices.length) {
+        volcengineVoices.value = voices
+        voiceCatalogUpdatedAt = Date.parse(cached.updatedAt) || 0
+        voiceCatalogStatus.value = `已读取缓存，更新时间：${new Date(voiceCatalogUpdatedAt).toLocaleString()}`
+      }
+    } catch { /* retain built-in catalog */ }
+    const refreshVoiceCatalog = async() => {
+      if (voiceCatalogLoading.value) return
+      const controller = new AbortController()
+      voiceCatalogController = controller
+      voiceCatalogLoading.value = true
+      voiceCatalogStatus.value = '正在读取火山官网公开音色，不会发送 API Key'
+      try {
+        const result = await djRequest('tts-voices', { settings: {} }, controller.signal)
+        const voices = sanitizeVoiceList(result.voices)
+        if (!voices.length) throw new Error('官网未返回有效的豆包 2.0 音色')
+        if (controller.signal.aborted) return
+        volcengineVoices.value = voices
+        voiceCatalogUpdatedAt = Date.parse(result.updatedAt) || Date.now()
+        localStorage.setItem(voiceCacheKey, JSON.stringify({ voices, updatedAt: new Date(voiceCatalogUpdatedAt).toISOString() }))
+        voiceCatalogStatus.value = `已从官网更新 ${voices.length} 个音色，${new Date(voiceCatalogUpdatedAt).toLocaleString()}`
+      } catch (error) {
+        if (!controller.signal.aborted) voiceCatalogStatus.value = `刷新失败，保留当前列表：${error.message}`
+      } finally {
+        if (voiceCatalogController === controller) {
+          voiceCatalogController = null
+          voiceCatalogLoading.value = false
+        }
+      }
+    }
+    watch(() => [props.visible, activeCategory.value, form.ttsEngine], () => {
+      if (props.visible && activeCategory.value === 'tts' && form.ttsEngine === 'volcengine-v3-tts' && Date.now() - voiceCatalogUpdatedAt > 24 * 60 * 60 * 1000) void refreshVoiceCatalog()
+    })
+    const ttsTesting = ref(false)
+    const ttsTestResult = ref('')
+    let ttsController = null
+    let previewAudio = null
+    let previewUrl = null
+    const stopTtsTest = () => {
+      ttsController?.abort()
+      ttsController = null
+      if (previewAudio) { previewAudio.pause(); previewAudio.removeAttribute('src'); previewAudio.load(); previewAudio = null }
+      if (previewUrl) { URL.revokeObjectURL(previewUrl); previewUrl = null }
+      window.speechSynthesis?.cancel()
+    }
+    const testTts = async() => {
+      stopTtsTest()
+      const controller = new AbortController()
+      ttsController = controller
+      ttsTesting.value = true
+      ttsTestResult.value = ''
+      try {
+        const url = await synthesizeSpeech('你好，这是音乐电台的语音测试。', { settings: { ...form }, signal: controller.signal })
+        if (controller.signal.aborted) { if (url.startsWith('blob:')) URL.revokeObjectURL(url); return }
+        if (url.startsWith('speech:')) {
+          const utterance = new SpeechSynthesisUtterance(decodeURIComponent(url.slice(7)))
+          utterance.lang = form.ttsLang
+          utterance.voice = window.speechSynthesis.getVoices().find(v => v.name === form.ttsVoice) ?? window.speechSynthesis.getVoices().find(v => v.lang.replace('_', '-').toLowerCase() === form.ttsLang.toLowerCase())
+          utterance.rate = form.ttsSpeed
+          utterance.pitch = form.ttsPitch
+          utterance.onerror = () => { if (!controller.signal.aborted) ttsTestResult.value = '系统语音播放失败，请选择云端语音服务' }
+          window.speechSynthesis.speak(utterance)
+        } else {
+          previewUrl = url.startsWith('blob:') ? url : null
+          previewAudio = new Audio(url)
+          previewAudio.onerror = () => { if (!controller.signal.aborted) ttsTestResult.value = '音频播放失败，请检查服务返回格式和系统音量' }
+          previewAudio.onended = () => { if (previewUrl) URL.revokeObjectURL(previewUrl); previewUrl = null }
+          await previewAudio.play()
+        }
+        ttsTestResult.value = '语音已开始播放；请确认扬声器可以听到声音。'
+      } catch (error) {
+        if (!controller.signal.aborted) ttsTestResult.value = `测试失败：${error.message}`
+      } finally {
+        if (ttsController === controller) ttsTesting.value = false
+      }
+    }
+    watch(() => form.ttsEngine, () => {
+      form.ttsVoice = ''
+      ttsTestResult.value = ''
+      stopTtsTest()
+      ttsTesting.value = false
+    })
     let editingModelId = form.selectedModel
     let connectionController = null
     const cityResults = ref([])
@@ -844,6 +980,9 @@ export default {
     }
 
     const close = () => {
+      voiceCatalogController?.abort()
+      stopTtsTest()
+      ttsTesting.value = false
       connectionController?.abort()
       if (searchTimer) {
         clearTimeout(searchTimer)
@@ -857,6 +996,8 @@ export default {
     }
 
     onUnmounted(() => {
+      voiceCatalogController?.abort()
+      stopTtsTest()
       connectionController?.abort()
       if (searchTimer) clearTimeout(searchTimer)
       citySearchSeq++
@@ -913,6 +1054,15 @@ export default {
       quickPresets,
       djPromptFields,
       chatPromptFields,
+      volcengineVoices,
+      visibleVolcengineVoices,
+      voiceCatalogQuery,
+      voiceCatalogLoading,
+      voiceCatalogStatus,
+      refreshVoiceCatalog,
+      ttsTesting,
+      ttsTestResult,
+      testTts,
       ttsChannels,
       ttsChannelHint,
       needsApiKey,

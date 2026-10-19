@@ -312,7 +312,7 @@ ${profilePrompt}
 
   const toolInstruction = `
 【音乐推荐与播放器操作】
-推荐真实歌曲时，优先调用 search_and_play 搜索并返回音乐卡片，使用 reason 说明推荐理由。
+每次推荐两首不同的真实歌曲，优先大众熟悉的热门或经典作品，避免过于冷门。不要重复本对话已经推荐的歌曲，也不要用同一首歌的翻唱、现场版或不同平台版本凑数。必须调用 search_and_play 核实曲名和原唱，只有搜索成功的歌曲才可写入推荐正文；未找到就更换候选歌曲。使用 reason 说明推荐理由。
 仅在用户要求立即播放时设置 immediatePlay 为 true；普通推荐设置为 false。
 需要了解收藏偏好时使用 get_user_favorites；用户明确要求暂停或切歌时使用 control_player。
 工具返回后，根据实际结果自然回复。未找到或播放失败时如实说明，不编造执行结果。
@@ -333,7 +333,7 @@ export const sendLlmStreamMessage = async(
   mode: DjMode,
   weatherStr: string,
   callbacks: StreamCallbacks,
-  options?: { sessionId?: string, signal?: AbortSignal, weatherType?: WeatherType, onFoundMusicCard?: (card: MusicCard) => void },
+  options?: { excludedSongNames?: string[], sessionId?: string, signal?: AbortSignal, weatherType?: WeatherType, onFoundMusicCard?: (card: MusicCard) => void },
 ) => {
   const signal = options?.signal
   const isConfigured = hasLlmConfiguration(djSettings)
@@ -364,6 +364,7 @@ export const sendLlmStreamMessage = async(
       callbacks,
       signal,
       onFoundMusicCard: options?.onFoundMusicCard,
+      excludedSongNames: options?.excludedSongNames,
     })
   } catch (err: any) {
     if (isAbortError(err)) {

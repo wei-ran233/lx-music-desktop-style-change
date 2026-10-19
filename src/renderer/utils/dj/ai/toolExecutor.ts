@@ -13,19 +13,25 @@ import type { MusicCard, WeatherType, DjMode, GenerationStatus } from '@renderer
 
 const isNonOriginal = (name: string, singer?: string): boolean => {
   const text = `${name} ${singer ?? ''}`
-  return /(翻唱|翻自|cover|Cover|live|Live|现场|伴奏|instrumental|纯音乐伴奏|remix|Remix|DJ版|官方版MV|演奏版|合唱版|对唱版|粤语版|国语版)/.test(text)
+  return /(翻唱|翻自|\bcover\b|\blive\b|现场|伴奏|instrumental|remix|DJ版|官方版MV|演奏版|合唱版|对唱版)/i.test(text)
 }
 
-const pickBestOriginal = (results: any[]): any => {
+export const normalizeSongName = (name = ''): string => name.normalize('NFKC').toLowerCase().replace(/[\s\p{P}\p{S}]/gu, '')
+
+export const songIdentity = (song: { name?: string }): string => normalizeSongName(song.name)
+
+const pickBestOriginal = (results: any[], keyword: string, singerHint?: string): any => {
   if (!results?.length) return null
   const candidates: any[] = []
   for (const r of results) {
-    if (r?.list?.length) candidates.push(r.list[0])
+    if (r?.list?.length) candidates.push(...r.list)
   }
   if (!candidates.length) return null
-  const originals = candidates.filter(c => !isNonOriginal(c.name, c.singer))
-  const pool = originals.length ? originals : candidates
-  return pool[0]
+  // A search hit is not proof of a match. Reject unrelated titles and covers.
+  const title = normalizeSongName(keyword)
+  const artist = normalizeSongName(singerHint)
+  return candidates.find(c => normalizeSongName(c.name) === title &&
+    (!artist || normalizeSongName(c.singer).includes(artist)) && !isNonOriginal(c.name, c.singer)) ?? null
 }
 
 interface MusicSearchCacheEntry {
@@ -64,32 +70,23 @@ const setCachedMusicSearch = (key: string, data: LX.Music.MusicInfo | null) => {
 }
 
 const doSearchMusicTrack = async(kw: string, singerHint?: string): Promise<LX.Music.MusicInfo | null> => {
-  try {
-    const results = await musicSdk.searchMusic({ name: kw, singer: singerHint ?? '', source: undefined, limit: 5 })
-    let topSong = pickBestOriginal(results)
-    if (topSong && singerHint) {
-      const hintNorm = singerHint.trim().toLowerCase()
-      const matched = (results || []).flatMap((r: any) => r?.list || []).find((c: any) => {
-        const s = (c.singer || '').toLowerCase()
-        return (s.includes(hintNorm) || hintNorm.includes(s)) && !isNonOriginal(c.name, c.singer)
-      })
-      if (matched) topSong = matched
-    }
-    if (topSong) {
-      const musicInfo = toNewMusicInfo(topSong)
-      try {
-        const picUrl = await getPicPath({ musicInfo })
-        if (picUrl) musicInfo.meta.picUrl = picUrl
-      } catch { /* ignore */ }
-      return markRaw(musicInfo)
-    }
-  } catch (err) {
-    console.error('[ToolExecutor] 搜歌异常:', err)
+  const results = await musicSdk.searchMusic({ name: kw, singer: singerHint ?? '', source: undefined, limit: 5 })
+  const topSong = pickBestOriginal(results, kw, singerHint)
+  if (topSong) {
+    const musicInfo = toNewMusicInfo(topSong)
+    try {
+      const picUrl = await getPicPath({ musicInfo })
+      if (picUrl) musicInfo.meta.picUrl = picUrl
+    } catch { /* ignore */ }
+    return markRaw(musicInfo)
   }
   return null
 }
 
 export async function searchMusicTrack(kw: string, singerHint?: string): Promise<LX.Music.MusicInfo | null> {
+  kw = kw.trim()
+  singerHint = singerHint?.trim()
+  if (!kw) return null
   const cacheKey = getMusicSearchCacheKey(kw, singerHint)
   const cached = getCachedMusicSearch(cacheKey)
   if (cached) return cached.data
@@ -100,6 +97,10 @@ export async function searchMusicTrack(kw: string, singerHint?: string): Promise
   const promise = doSearchMusicTrack(kw, singerHint).then((result) => {
     setCachedMusicSearch(cacheKey, result)
     return result
+  }).catch((err) => {
+    // 网络失败不缓存，允许用户立即重试；正常的空结果仍使用 TTL。
+    console.error('[ToolExecutor] 搜歌异常:', err)
+    return null
   }).finally(() => {
     pendingMusicSearches.delete(cacheKey)
   })
@@ -108,16 +109,17 @@ export async function searchMusicTrack(kw: string, singerHint?: string): Promise
 }
 
 export async function playMusicTrack(musicInfo: LX.Music.MusicInfo) {
-  recordPlayedSong(musicInfo.name, musicInfo.singer)
   const currentListId = playInfo.playerListId
   if (currentListId && currentListId !== LIST_IDS.PLAY_LATER) {
     await addListMusics(currentListId, [musicInfo])
     setPlayMusicInfo(currentListId, musicInfo, false)
     handlePlay()
+    recordPlayedSong(musicInfo.name, musicInfo.singer)
     return
   }
   setPlayMusicInfo(LIST_IDS.PLAY_LATER, musicInfo, true)
   handlePlay()
+  recordPlayedSong(musicInfo.name, musicInfo.singer)
 }
 
 export interface ToolExecutionContext {
@@ -126,6 +128,7 @@ export interface ToolExecutionContext {
   onStatus?: (status: GenerationStatus) => void
   signal?: AbortSignal
   onFoundMusicCard?: (card: MusicCard) => void
+  excludedSongNames?: Set<string>
 }
 
 /**
@@ -150,6 +153,11 @@ export async function executeToolAction(
         }
       }
 
+      const identity = songIdentity(musicInfo)
+      if (context?.excludedSongNames?.has(identity)) {
+        return { found: false, keyword, message: '这首歌曲已经推荐过，请选择另一首大众熟悉的不同歌曲' }
+      }
+      context?.excludedSongNames?.add(identity)
       const card: MusicCard = {
         track: markRaw(musicInfo),
         name: musicInfo.name,
@@ -189,14 +197,11 @@ export async function executeToolAction(
     case 'get_user_favorites': {
       const weatherType = context?.weatherType || 'sunny'
       const mode = context?.mode || 'dj'
-      let loveRecs = recommendFromLoveList(weatherType, mode)
-      const filter = typeof args.moodOrGenre === 'string' ? args.moodOrGenre.trim().toLowerCase() : ''
-      if (filter) {
-        const filtered = loveRecs.filter(s => `${s.name} ${s.singer ?? ''} ${s.reason ?? ''}`.toLowerCase().includes(filter))
-        if (filtered.length > 0) loveRecs = filtered
-      }
-      const limit = Math.min(10, Math.max(1, args.limit || 5))
-      const selected = loveRecs.slice(0, limit)
+      const limit = Number.isFinite(args.limit) ? Math.min(10, Math.max(1, Math.floor(args.limit))) : 5
+      const selected = recommendFromLoveList(weatherType, mode, {
+        query: typeof args.moodOrGenre === 'string' ? args.moodOrGenre : '',
+        limit,
+      })
 
       return {
         count: selected.length,

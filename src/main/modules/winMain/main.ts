@@ -118,7 +118,7 @@ export const createWindow = () => {
     useContentSize: true,
     width: windowSizeInfo.width,
     frame: false,
-    transparent: !global.envParams.cmdParams.dt,
+    transparent: !isLinux && !global.envParams.cmdParams.dt,
     hasShadow: global.envParams.cmdParams.dt,
     // enableRemoteModule: false,
     // icon: join(global.__static, isWin ? 'icons/256x256.ico' : 'icons/512x512.png'),
@@ -139,7 +139,7 @@ export const createWindow = () => {
       spellcheck: false, // 禁用拼写检查器
     },
   }
-  if (global.envParams.cmdParams.dt) options.backgroundColor = theme.colors['--color-primary-light-1000']
+  if (isLinux || global.envParams.cmdParams.dt) options.backgroundColor = theme.colors['--color-primary-light-1000']
   if (global.lx.appSetting['common.startInFullscreen']) {
     options.fullscreen = true
     if (isLinux) options.resizable = true
@@ -243,10 +243,10 @@ export const toggleMinimize = () => {
 }
 export const showWindow = () => {
   if (!browserWindow) return
-  if (browserWindow.isVisible()) {
-    if (browserWindow.isMinimized()) browserWindow.restore()
-    else browserWindow.focus()
-  } else browserWindow.show()
+  if (browserWindow.isMinimized()) browserWindow.restore()
+  browserWindow.show()
+  browserWindow.focus()
+  browserWindow.moveTop()
 }
 export const hideWindow = () => {
   if (!browserWindow) return
@@ -254,6 +254,16 @@ export const hideWindow = () => {
 }
 export const setWindowBounds = (options: Partial<Electron.Rectangle>) => {
   if (!browserWindow) return
+  if (browserWindow.isFullScreen()) return
+  if (browserWindow.isMaximized()) {
+    const win = browserWindow
+    win.once('unmaximize', () => {
+      // Some Linux window managers finish restoring normal bounds after the event.
+      setTimeout(() => { if (!win.isDestroyed()) win.setBounds(options) }, 0)
+    })
+    win.unmaximize()
+    return
+  }
   browserWindow.setBounds(options)
 }
 export const setProgressBar = (progress: number, options?: Electron.ProgressBarOptions) => {

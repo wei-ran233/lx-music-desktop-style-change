@@ -15,6 +15,7 @@ export interface AiConversationOptions {
   callbacks: StreamCallbacks
   signal?: AbortSignal
   onFoundMusicCard?: (card: any) => void
+  excludedSongNames?: string[]
 }
 
 /**
@@ -46,6 +47,7 @@ export async function runPiAiConversation(options: AiConversationOptions): Promi
 
   const toolExecCtx: ToolExecutionContext = {
     mode,
+    excludedSongNames: new Set(options.excludedSongNames ?? []),
     weatherType,
     onFoundMusicCard,
     signal,

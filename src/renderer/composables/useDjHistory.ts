@@ -11,7 +11,6 @@ import {
   recommendHistoryList,
   saveHistory,
 } from '@renderer/store/dj'
-import { recordPlayedSong } from '@renderer/utils/dj/userProfile'
 import type { DjMode, HistoryItem, ChatMessage, MusicCard } from '@renderer/utils/dj/types'
 
 export function useDjHistory() {
@@ -170,7 +169,6 @@ export function useDjHistory() {
 
   /** 直接播放推荐 */
   const directPlay = (item: HistoryItem, playMusic: (card: MusicCard) => void) => {
-    recordPlayedSong(item.title, item.singer)
     playMusic({ name: item.title, singer: item.singer })
   }
 
@@ -198,9 +196,9 @@ export function useDjHistory() {
       : historyCategory.value === 'chat'
         ? chatHistoryList
         : recommendHistoryList
+    if (targetList.some(item => item.id === activeHistoryId.value)) activeHistoryId.value = ''
     targetList.splice(0, targetList.length)
     saveHistory()
-    activeHistoryId.value = ''
   }
 
   /** 新对话 */

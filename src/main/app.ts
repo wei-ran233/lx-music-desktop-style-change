@@ -1,4 +1,5 @@
 import path from 'node:path'
+import { env as runtimeEnv } from 'node:process'
 import { existsSync, mkdirSync, renameSync } from 'fs'
 import { app, shell, screen, nativeTheme, dialog } from 'electron'
 import { URL_SCHEME_RXP } from '@common/constants'
@@ -7,7 +8,7 @@ import { navigationUrlWhiteList } from '@common/config'
 import defaultSetting from '@common/defaultSetting'
 import { isExistWindow as isExistMainWindow, showWindow as showMainWindow } from './modules/winMain'
 import { createAppEvent, createDislikeEvent, createListEvent } from '@main/event'
-import { isMac, log } from '@common/utils'
+import { isMac, isLinux, log } from '@common/utils'
 import createWorkers from './worker'
 import { migrateDBData } from './utils/migrate'
 import { openDirInExplorer } from '@common/utils/electron'
@@ -93,6 +94,7 @@ export const initSingleInstanceHandle = () => {
       if (envParams.deeplink) {
         global.envParams.deeplink = envParams.deeplink
         global.lx.event_app.deeplink(global.envParams.deeplink)
+        if (envParams.cmdParams.hidden !== true) showMainWindow()
         return
       }
       if (envParams.cmdParams.hidden !== true) {
@@ -109,8 +111,14 @@ export const applyElectronEnvParams = () => {
   if (global.envParams.cmdParams.dha) app.disableHardwareAcceleration()
   if (global.envParams.cmdParams.dhmkh) app.commandLine.appendSwitch('disable-features', 'HardwareMediaKeyHandling')
 
-  // fix linux transparent fail. https://github.com/electron/electron/issues/25153#issuecomment-843688494
-  if (process.platform == 'linux') app.commandLine.appendSwitch('use-gl', 'desktop')
+  // Native Wayland restricts focus/raise and programmatic resizing. Prefer XWayland
+  // when available; preserve an explicitly selected Ozone backend.
+  if (isLinux && runtimeEnv.DISPLAY && !process.argv.some(arg => /^--ozone-platform(?:=|$)/.test(arg))) {
+    app.commandLine.appendSwitch('ozone-platform', 'x11')
+  }
+
+  // Use Electron's supported default ANGLE backend. The old transparent-window
+  // workaround (--use-gl=desktop) fails GPU initialization in Electron 41.
 
   // https://github.com/electron/electron/issues/22691
   app.commandLine.appendSwitch('wm-window-animations-disabled')

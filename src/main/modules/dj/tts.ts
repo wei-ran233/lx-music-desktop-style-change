@@ -1,6 +1,6 @@
 import type { DjSettingsState } from '../../../renderer/utils/dj/types'
 
-export const createTtsService = (djSettings: DjSettingsState) => {
+export const createTtsService = (djSettings: DjSettingsState, request: typeof fetch = fetch) => {
   type TtsEngine =
     | 'web-speech'
     | 'youdao-tts'
@@ -8,6 +8,7 @@ export const createTtsService = (djSettings: DjSettingsState) => {
     | 'azure-tts'
     | 'iflytek-tts'
     | 'volcengine-tts'
+    | 'volcengine-v3-tts'
     | 'custom-tts'
 
   const TTS_HTTP_TIMEOUT_MS = 20000
@@ -64,16 +65,27 @@ export const createTtsService = (djSettings: DjSettingsState) => {
     throwIfAborted(signal)
     const timedSignal = createTimedSignal(TTS_HTTP_TIMEOUT_MS, signal)
     try {
-      return await fetch(url, {
+      const response = await request(url, {
         ...init,
         signal: timedSignal.signal,
       })
+      const body = await response.arrayBuffer()
+      return new Response(body, { status: response.status, headers: response.headers })
     } catch (err) {
       if (isAbortError(err) && !timedSignal.isTimeout()) throw createAbortError()
       throw err
     } finally {
       timedSignal.cleanup()
     }
+  }
+
+  const readAudio = async(response: Response): Promise<string> => {
+    const type = response.headers.get('content-type') ?? ''
+    if (!response.ok) throw new Error(`语音服务 HTTP ${response.status}`)
+    if (/json|text|html/i.test(type)) throw new Error('语音服务返回了非音频内容，请检查接口地址和配置')
+    const blob = await response.blob()
+    if (!blob.size) throw new Error('语音服务返回了空音频')
+    return blobToUrl(blob)
   }
 
   /**
@@ -87,9 +99,6 @@ export const createTtsService = (djSettings: DjSettingsState) => {
       .replace(/\s+/g, ' ')
       .trim()
   }
-
-  /** 是否有浏览器原生语音 */
-  const hasWebSpeech = (): boolean => true
 
   /** 返回 Web Speech 协议地址（由 djAudio 处理） */
   const toSpeechProtocol = (text: string): string => {
@@ -106,17 +115,12 @@ export const createTtsService = (djSettings: DjSettingsState) => {
   const audioBlobs = new Map<string, Blob>()
   const blobToUrl = (blob: Blob): string => { const id = `audio:${audioBlobs.size}`; audioBlobs.set(id, blob); return id }
 
-  /** 降级到 Web Speech 或你有道 */
-  const fallbackSpeech = (text: string): string => {
-    return hasWebSpeech() ? toSpeechProtocol(text) : toYoudaoUrl(text)
-  }
-
   // ─── 各渠道实现 ──────────────────────────────────────────
 
   /** 1. OpenAI TTS */
   const synthesizeOpenAI = async(text: string, signal?: AbortSignal): Promise<string | null> => {
-    const apiKey = djSettings.ttsApiKey || djSettings.apiKey
-    if (!apiKey) return null
+    const apiKey = djSettings.ttsApiKey
+    if (!apiKey) throw new Error('请填写该语音服务专用的 API Key')
 
     const response = await fetchWithTimeout(
       'https://api.openai.com/v1/audio/speech',
@@ -129,29 +133,32 @@ export const createTtsService = (djSettings: DjSettingsState) => {
         body: JSON.stringify({
           model: 'tts-1',
           input: text,
-          voice: 'alloy',
+          voice: /Neural$/.test(djSettings.ttsVoice || '') ? 'alloy' : (djSettings.ttsVoice || 'alloy'),
+          speed: djSettings.ttsSpeed || 1,
+          response_format: 'mp3',
         }),
       },
       signal,
     )
 
     if (!response.ok) throw new Error(`OpenAI TTS Status ${response.status}`)
-    return blobToUrl(await response.blob())
+    return readAudio(response)
   }
 
   /** 2. Azure 神经语音 REST API */
   const synthesizeAzure = async(text: string, voice: string, signal?: AbortSignal): Promise<string | null> => {
-    const apiKey = djSettings.ttsApiKey || djSettings.apiKey
+    const apiKey = djSettings.ttsApiKey
     const region = djSettings.ttsRegion || 'eastasia'
-    if (!apiKey) return null
+    if (!apiKey) throw new Error('请填写该语音服务专用的 API Key')
 
-    const lang = djSettings.ttsLang || 'zh-CN'
+    const escapeXml = (value: string) => value.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/'/g, '&apos;').replace(/"/g, '&quot;')
+    const lang = escapeXml(djSettings.ttsLang || 'zh-CN')
     const endpoint = `https://${region}.tts.speech.microsoft.com/cognitiveservices/v1`
 
     const ssml = [
       `<speak version='1.0' xml:lang='${lang}'>`,
-      `<voice name='${voice || 'zh-CN-XiaoxiaoNeural'}'>`,
-      text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'),
+      `<voice name='${escapeXml(voice || ({ 'zh-CN': 'zh-CN-XiaoxiaoNeural', 'zh-TW': 'zh-TW-HsiaoChenNeural', 'en-US': 'en-US-JennyNeural' }[djSettings.ttsLang] ?? 'zh-CN-XiaoxiaoNeural'))}'>`,
+      `<prosody rate='${Math.round(((djSettings.ttsSpeed || 1) - 1) * 100)}%' pitch='${Math.round(((djSettings.ttsPitch || 1) - 1) * 100)}%'>${escapeXml(text)}</prosody>`,
       '</voice>',
       '</speak>',
     ].join('')
@@ -172,7 +179,7 @@ export const createTtsService = (djSettings: DjSettingsState) => {
     )
 
     if (!response.ok) throw new Error(`Azure TTS Status ${response.status}`)
-    return blobToUrl(await response.blob())
+    return readAudio(response)
   }
 
   /** HMAC-SHA256 签名（用于讯飞鉴权） */
@@ -187,7 +194,7 @@ export const createTtsService = (djSettings: DjSettingsState) => {
     const appId = djSettings.ttsAppId
     const apiKey = djSettings.ttsApiKey
     const apiSecret = djSettings.ttsCustomUrl // 复用 customUrl 存 ApiSecret
-    if (!appId || !apiKey || !apiSecret) return null
+    if (!appId || !apiKey || !apiSecret) throw new Error('讯飞语音需要 AppID、API Key 和 API Secret')
     throwIfAborted(signal)
 
     const host = 'tts-api.xfyun.cn'
@@ -323,7 +330,7 @@ export const createTtsService = (djSettings: DjSettingsState) => {
   const synthesizeVolcengine = async(text: string, voice: string, signal?: AbortSignal): Promise<string | null> => {
     const appId = djSettings.ttsAppId
     const accessToken = djSettings.ttsApiKey
-    if (!appId || !accessToken) return null
+    if (!appId || !accessToken) throw new Error('火山语音需要 AppID 和 Access Token')
 
     const endpoint = 'https://openspeech.bytedance.com/api/v1/tts'
     const cluster = 'volcano_tts'
@@ -349,19 +356,53 @@ export const createTtsService = (djSettings: DjSettingsState) => {
     if (!response.ok) throw new Error(`火山 TTS Status ${response.status}`)
     const data = await response.json()
 
-    if (data.code !== 3000 || !data.data?.audio) {
+    if (data.code !== 3000 || typeof data.data !== 'string' || !data.data) {
       throw new Error(`火山 TTS 返回异常: ${data.message || data.code}`)
     }
 
-    const binStr = atob(data.data.audio)
+    const binStr = atob(data.data)
     const bytes = new Uint8Array(binStr.length)
     for (let i = 0; i < binStr.length; i++) bytes[i] = binStr.charCodeAt(i)
     return blobToUrl(new Blob([bytes], { type: 'audio/mpeg' }))
   }
 
+  /** New-console API Key authentication; HTTP chunked JSON / SSE response. */
+  const synthesizeVolcengineV3 = async(text: string, voice: string, signal?: AbortSignal): Promise<string> => {
+    if (!djSettings.ttsApiKey) throw new Error('请填写火山新版 API Key')
+    const response = await fetchWithTimeout('https://openspeech.bytedance.com/api/v3/tts/unidirectional', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Api-Key': djSettings.ttsApiKey,
+        'X-Api-Resource-Id': djSettings.ttsResourceId?.trim() ? djSettings.ttsResourceId.trim() : 'seed-tts-2.0',
+        'X-Api-Request-Id': crypto.randomUUID(),
+      },
+      body: JSON.stringify({
+        req_params: {
+          text,
+          speaker: voice || 'zh_female_vv_uranus_bigtts',
+          audio_params: { format: 'mp3', sample_rate: 24000, speech_rate: Math.round(((djSettings.ttsSpeed || 1) - 1) * 100) },
+        },
+      }),
+    }, signal)
+    if (!response.ok) throw new Error(`火山语音 HTTP ${response.status}，请检查 API Key 与资源权限`)
+    const chunks: Uint8Array[] = []
+    let complete = false
+    for (const raw of (await response.text()).split(/\r?\n/)) {
+      const line = raw.trim().replace(/^data:\s*/, '')
+      if (!line || !line.startsWith('{')) continue
+      const event = JSON.parse(line)
+      if (event.code !== 0 && event.code !== 20000000) throw new Error(`火山语音错误 ${event.code}：${event.message || '请检查资源和音色权限'}`)
+      if (event.data) chunks.push(Uint8Array.from(atob(event.data), c => c.charCodeAt(0)))
+      if (event.code === 20000000) complete = true
+    }
+    if (!complete || !chunks.some(chunk => chunk.length)) throw new Error('火山语音返回不完整或没有音频')
+    return blobToUrl(new Blob(chunks as BlobPart[], { type: 'audio/mpeg' }))
+  }
+
   /** 5. 自定义 WebAPI */
   const synthesizeCustom = async(text: string, signal?: AbortSignal): Promise<string | null> => {
-    if (!djSettings.ttsCustomUrl) return null
+    if (!djSettings.ttsCustomUrl) throw new Error('请填写自定义语音服务地址')
     const response = await fetchWithTimeout(
       djSettings.ttsCustomUrl,
       {
@@ -371,18 +412,18 @@ export const createTtsService = (djSettings: DjSettingsState) => {
           Authorization: `Bearer ${djSettings.ttsApiKey}`,
         },
         body: JSON.stringify({
-          text,
-          voice: djSettings.ttsVoice,
-          lang: djSettings.ttsLang,
-          speed: djSettings.ttsSpeed,
-          pitch: djSettings.ttsPitch,
+          model: 'tts-1',
+          input: text,
+          voice: /Neural$/.test(djSettings.ttsVoice || '') ? 'alloy' : (djSettings.ttsVoice || 'alloy'),
+          response_format: 'mp3',
+          speed: djSettings.ttsSpeed || 1,
         }),
       },
       signal,
     )
 
     if (!response.ok) throw new Error(`自定义 TTS Status ${response.status}`)
-    return blobToUrl(await response.blob())
+    return readAudio(response)
   }
 
   // ─── 主入口 ──────────────────────────────────────────────
@@ -393,7 +434,8 @@ export const createTtsService = (djSettings: DjSettingsState) => {
    */
   const synthesizeSpeech = async(text: string, options: SynthesizeSpeechOptions = {}): Promise<string> => {
     const engine: TtsEngine = djSettings.ttsEngine || 'web-speech'
-    const voice = djSettings.ttsVoice || 'zh-CN-XiaoxiaoNeural'
+    const configuredVoice = djSettings.ttsVoice || ''
+    const voice = engine !== 'azure-tts' && /Neural$/.test(configuredVoice) ? '' : configuredVoice
     const signal = options.signal
     const cleanText = cleanTextForSpeech(text).slice(0, MAX_TTS_TEXT_LENGTH)
     throwIfAborted(signal)
@@ -408,11 +450,12 @@ export const createTtsService = (djSettings: DjSettingsState) => {
       switch (engine) {
         case 'web-speech':
           throwIfAborted(signal)
-          return fallbackSpeech(cleanText)
+          return toSpeechProtocol(cleanText)
 
         case 'youdao-tts':
           throwIfAborted(signal)
-          return blobToUrl(await (await fetchWithTimeout(toYoudaoUrl(cleanText), {}, signal)).blob())
+          if (cleanText.length > 100) throw new Error('有道接口只适合 100 字以内短句，长篇播报请选择 Azure 或讯飞语音')
+          return readAudio(await fetchWithTimeout(toYoudaoUrl(cleanText), {}, signal))
 
         case 'openai-tts':
           url = await synthesizeOpenAI(cleanText, signal)
@@ -424,6 +467,10 @@ export const createTtsService = (djSettings: DjSettingsState) => {
 
         case 'iflytek-tts':
           url = await synthesizeIflytek(cleanText, voice, signal)
+          break
+
+        case 'volcengine-v3-tts':
+          url = await synthesizeVolcengineV3(cleanText, voice, signal)
           break
 
         case 'volcengine-tts':
@@ -438,11 +485,12 @@ export const createTtsService = (djSettings: DjSettingsState) => {
       if (url) return url
     } catch (err) {
       if (isAbortError(err)) throw createAbortError()
-      // Do not log provider errors that may contain credentials or request URLs.
+      // Keep failures visible; do not silently switch to a possibly unavailable engine.
+      throw new Error(err instanceof Error ? err.message : '语音服务请求失败')
     }
 
     throwIfAborted(signal)
-    return fallbackSpeech(cleanText)
+    throw new Error('语音服务未返回音频，请检查配置')
   }
 
   return { async synthesize(text: string, signal?: AbortSignal) { const result = await synthesizeSpeech(text, { signal }); const blob = audioBlobs.get(result); return blob ? { audio: new Uint8Array(await blob.arrayBuffer()), mime: blob.type } : { url: result } } }

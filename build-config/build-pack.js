@@ -68,6 +68,7 @@ const winOptions = {
  */
 const linuxOptions = {
   linux: {
+    syncDesktopName: true,
     maintainer: 'lyswhut <lyswhut@qq.com>',
     // artifactName: '${productName}-${version}.${env.ARCH}.${ext}',
     icon: './resources/icons',

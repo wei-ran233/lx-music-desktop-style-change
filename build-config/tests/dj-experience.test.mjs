@@ -75,6 +75,17 @@ try {
     assert.equal(state.djHistoryList.length, 0)
     assert.equal(state.chatHistoryList.length, 1)
   })
+  await check('clearing another category preserves the active conversation and direct play does not switch sessions', () => {
+    h.activeHistoryId.value = 'chat-1'
+    h.historyCategory.value = 'recommend'
+    state.recommendHistoryList.push({ id: 'rec-2', type: 'recommend', mode: 'dj', title: '夜曲', singer: '歌手' })
+    h.clearCurrentCategoryHistory()
+    assert.equal(h.activeHistoryId.value, 'chat-1')
+    let played
+    h.directPlay({ title: '夜曲', singer: '歌手' }, card => { played = card })
+    assert.deepEqual(played, { name: '夜曲', singer: '歌手' })
+    assert.equal(h.activeHistoryId.value, 'chat-1')
+  })
   const { createTtsService } = await compile('src/main/modules/dj/tts.ts')
   await check('main-process TTS preserves local speech and cancellation', async() => {
     const settings = { ttsEngine: 'web-speech', ttsVoice: '', ttsSpeed: 1 }

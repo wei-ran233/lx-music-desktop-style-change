@@ -180,13 +180,14 @@ export interface DjSettingsState {
   chatPromptRecommendation: string
   chatPromptProfileLearning: string
 
-  ttsEngine: 'web-speech' | 'youdao-tts' | 'openai-tts' | 'azure-tts' | 'iflytek-tts' | 'volcengine-tts' | 'custom-tts'
+  ttsEngine: 'web-speech' | 'youdao-tts' | 'openai-tts' | 'azure-tts' | 'iflytek-tts' | 'volcengine-tts' | 'volcengine-v3-tts' | 'custom-tts'
   ttsApiKey: string
   ttsCustomUrl: string
   ttsLang: 'zh-CN' | 'en-US' | 'zh-TW'
   ttsVoice: string
   ttsAppId: string
   ttsRegion: string
+  ttsResourceId?: string
   ttsSpeed: number
   ttsPitch: number
   enableChatSpeech: boolean

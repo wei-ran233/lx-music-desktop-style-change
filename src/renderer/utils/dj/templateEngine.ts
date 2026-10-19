@@ -8,7 +8,7 @@
  */
 
 import { loveList } from '@renderer/store/list/state'
-import { analyzeUserProfile } from '@renderer/utils/dj/userProfile'
+import { analyzeUserProfile, matchesMusicPreference } from '@renderer/utils/dj/userProfile'
 import { djSettings } from '@renderer/store/dj'
 import type { DjMode, TimePeriod, WeatherType, MusicGenre, DjIntroText, RecommendResult } from './types'
 
@@ -387,6 +387,7 @@ export const generateSuggestChips = (mode: DjMode, weatherStr?: string): string[
 export const recommendFromLoveList = (
   weatherType?: WeatherType,
   mode: DjMode = 'dj',
+  options: { query?: string, limit?: number } = {},
 ): RecommendResult[] => {
   const songs = (loveList as any)?.list ?? []
   if (songs.length === 0) return []
@@ -397,7 +398,7 @@ export const recommendFromLoveList = (
   const topArtistsSet = new Set(profile.topArtists.map(a => a.toLowerCase()))
 
   // 多维评分：偏好歌手 + 历史播放频次 + 天气/时段关键词匹配度
-  const scored = songs.map((song: any) => {
+  const scored = songs.filter((song: any) => matchesMusicPreference(song.name || '', song.singer || '', options.query ?? '')).map((song: any) => {
     let score = 0.5 // 基础分
     const name = String(song.name || '').toLowerCase()
     const singer = String(song.singer || '').toLowerCase()
@@ -411,19 +412,13 @@ export const recommendFromLoveList = (
     if ((period === 'night' || period === 'lateNight') && /(夜|晚|星|月|眠|静)/.test(name)) score += 0.15
     if (period === 'morning' && /(早|晨|光|醒|日)/.test(name)) score += 0.15
 
-    return { song, score }
+    return { song, score, tieBreaker: Math.random() }
   })
 
-  // 按评分排序（分数相同则随机打乱，避免每次返回固定前 5 导致重复）
-  scored.sort((a: any, b: any) => {
-    if (b.score !== a.score) return b.score - a.score
-    return Math.random() - 0.5
-  })
-
-  // 取前 8 作为候选池（比之前 5 更大），并随机起点取样，进一步降低重复
-  const top = scored.slice(0, 8)
-  const startIdx = Math.floor(Math.random() * Math.max(1, top.length - 2))
-  const sampled = [...top.slice(startIdx), ...top.slice(0, startIdx)].slice(0, 5)
+  // 仅在同分歌曲之间随机排序，保留偏好与场景评分的优先级。
+  scored.sort((a: any, b: any) => b.score - a.score || a.tieBreaker - b.tieBreaker)
+  const limit = Number.isFinite(options.limit) ? Math.min(10, Math.max(1, Math.floor(options.limit!))) : 5
+  const sampled = scored.slice(0, limit)
 
   return sampled.map((item: any) => {
     const s = item.song

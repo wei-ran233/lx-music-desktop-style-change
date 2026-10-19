@@ -62,8 +62,8 @@ export const getFontSizeWithScreen = (screenWidth: number = window.innerWidth): 
         : screenWidth <= 2560 ? 20 : 22
 }
 
-export const normalizePageScale = (_scale: unknown): LX.AppSetting['common.pageScale'] => {
-  return 1
+export const normalizePageScale = (scale: unknown): LX.AppSetting['common.pageScale'] => {
+  return typeof scale === 'number' && Number.isFinite(scale) ? Math.round(Math.max(0.75, Math.min(1.5, scale)) * 100) / 100 : 1
 }
 
 export const getEffectiveFontSize = (

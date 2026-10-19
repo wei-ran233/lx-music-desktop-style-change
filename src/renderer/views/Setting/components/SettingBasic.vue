@@ -58,6 +58,14 @@ dd
       @update:model-value="updateSetting({'common.windowSizeId': $event})")
 
 dd
+  h3#basic_page_scale 界面缩放
+  div
+    base-checkbox.gap-left(
+      v-for="scale in [0.75, 0.85, 1, 1.15, 1.25, 1.5]" :id="`setting_page_scale_${scale}`" :key="scale"
+      name="setting_page_scale" need :model-value="appSetting['common.pageScale']" :value="scale" :label="`${Math.round(scale * 100)}%`"
+      @update:model-value="updateSetting({'common.pageScale': $event})")
+
+dd
   h3#basic_font_size {{ $t('setting__basic_font_size') }}
   div
     //- base-selection.gap-teft(:list="fontSizeList" :model-value="appSetting['common.fontSize']" @update:model-value="updateSetting({'common.fontSize': $event})")

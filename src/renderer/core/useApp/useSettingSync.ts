@@ -10,7 +10,7 @@ import { setUserApi } from '../apiSource'
 
 export default () => {
   watch(() => appSetting['common.windowSizeId'], (index) => {
-    const info = index == null ? windowSizeList[2] : windowSizeList[index]
+    const info = windowSizeList.find(item => item.id === index) ?? windowSizeList[2]
     setWindowSize(info.width, info.height)
   })
   watch(() => appSetting['common.fontSize'], (fontSize) => {

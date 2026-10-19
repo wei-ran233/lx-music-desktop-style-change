@@ -4,6 +4,7 @@ import { completeModelText, fetchProviderModels, resolveConfiguredModel, modelRe
 import { protectSettings, hydrateSettings } from './vault'
 import { getWebContents } from '@main/modules/winMain/main'
 import { createTtsService } from './tts'
+import { loadOfficialVolcengineVoices } from './voices'
 
 export default () => {
   const pending = new Map<string, AbortController>()
@@ -18,7 +19,7 @@ export default () => {
     const key = `${event.sender.id}:${request.id}`
     const controller = new AbortController()
     pending.set(key, controller)
-    const timeout = setTimeout(() => { controller.abort() }, request.operation === 'stream' ? 120000 : 30000)
+    const timeout = setTimeout(() => { controller.abort() }, request.operation === 'stream' ? 120000 : request.operation === 'tts-voices' ? 45000 : 30000)
     const destroyed = () => { controller.abort() }
     event.sender.once('destroyed', destroyed)
     let resolvedSettings: Record<string, any> = {}
@@ -27,10 +28,11 @@ export default () => {
       const settings = hydrateSettings<any>(raw)
       resolvedSettings = settings
       let value: unknown
-      if (request.operation === 'models') value = await fetchProviderModels(settings, controller.signal)
+      if (request.operation === 'tts-voices') value = await loadOfficialVolcengineVoices(controller.signal)
+      else if (request.operation === 'models') value = await fetchProviderModels(settings, controller.signal)
       else if (request.operation === 'complete') value = await completeModelText(settings, args.prompt, controller.signal)
       else if (request.operation === 'resolve') value = { model: (await resolveConfiguredModel(settings, controller.signal)).model }
-      else if (request.operation === 'tts') value = await createTtsService(settings).synthesize(args.text, controller.signal)
+      else if (request.operation === 'tts') value = await createTtsService(settings, async(url, init) => getWebContents().session.fetch(url as string, init as any) as unknown as Promise<Response>).synthesize(args.text, controller.signal)
       else if (request.operation === 'stream') {
         const { models, model, apiKey } = await resolveConfiguredModel(settings, controller.signal)
         const stream = models.streamSimple(model, args.context, { apiKey, signal: controller.signal, sessionId: args.sessionId, headers: modelRequestHeaders(model, args.sessionId), maxTokens: Math.min(model.maxTokens, 4096) })

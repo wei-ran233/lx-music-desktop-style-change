@@ -111,6 +111,7 @@
             v-if="mode === 'dj'"
             type="button"
             :class="[$style.quickActionBtn, { [$style.quickActionActive]: djSettings.autoContinue }]"
+            :aria-pressed="djSettings.autoContinue"
             :title="djSettings.autoContinue ? '自动连播已开启（点击切换）' : '自动连播已关闭（点击开启）'"
             @click="toggleAutoContinue"
           >
@@ -131,6 +132,7 @@
           <button
             type="button"
             :class="[$style.settingIconBtn, { [$style.iconBtnActive]: isSpeechEnabled }]"
+            :aria-pressed="isSpeechEnabled"
             :title="isSpeechEnabled ? '语音播报已开启（点击静音）' : '语音播报已关闭（点击开启）'"
             @click="toggleSpeechEnabled"
           >
@@ -266,6 +268,8 @@
                     <button
                       :class="[$style.favSongBtn, { [$style.favSongActive]: isMusicCardLoved(card) }]"
                       :title="isMusicCardLoved(card) ? '已在我的喜爱中' : '收藏到我的喜爱'"
+                      :aria-label="isMusicCardLoved(card) ? '已在我的喜爱中' : '收藏到我的喜爱'"
+                      :disabled="isMusicCardLoved(card)"
                       @click="onFavoriteMusic(card)"
                     >
                       <DjIcon name="heart" />
@@ -411,7 +415,6 @@ export default {
       enqueueMusicCard,
       isMusicCardLoved,
       favoriteMusicCard,
-      isPlayingMusic,
       hasMessages,
       activeFeatureTag,
       showPlusMenu,
@@ -530,6 +533,7 @@ export default {
 
     onUnmounted(() => {
       stopGeneration()
+      cancelMessageSpeech()
       stopDjSpeech()
       // 离开页面标记为非活跃，避免未使用 DJ 时也触发自动连播
       setDjPageActive(false)
@@ -549,6 +553,7 @@ export default {
     const switchMode = (newMode) => {
       if (newMode === mode.value) return
       stopGeneration()
+      cancelMessageSpeech()
       stopDjSpeech()
       mode.value = newMode
       setDjMode(newMode)
@@ -562,6 +567,7 @@ export default {
     // 新对话
     const startNewChat = () => {
       stopGeneration()
+      cancelMessageSpeech()
       stopDjSpeech()
       historyStartNewChat()
       clearMessages()
@@ -576,8 +582,9 @@ export default {
         cancelButtonText: '取消',
       })
       if (!confirm) return
+      const wasActive = activeHistoryId.value === item.id
       rawDeleteHistory(item)
-      if (activeHistoryId.value === item.id) {
+      if (wasActive) {
         startNewChat()
       }
     }
@@ -585,7 +592,7 @@ export default {
     // 选择历史记录
     const onDirectPlayHistory = (item) => {
       historyDirectPlay(item, (card) => {
-        chatToggleMusicPlay(card).catch(err => { console.error(err) })
+        chatToggleMusicPlay(card).catch(err => { void dialog({ message: err.message }) })
       })
     }
 
@@ -595,6 +602,8 @@ export default {
         return
       }
       stopGeneration()
+      cancelMessageSpeech()
+      stopDjSpeech()
       setConversationId(item.id)
       const messages = selectHistory(item)
       if (messages) {
@@ -616,13 +625,20 @@ export default {
         cancelButtonText: '取消',
       })
       if (!confirm) return
+      const wasActive = currentHistoryList.value.some(item => item.id === activeHistoryId.value)
       clearCurrentCategoryHistory()
-      startNewChat()
+      if (wasActive) startNewChat()
     }
 
     // 快捷控制：连播开关、语音播报开关、DJ 一键切歌
     const isSpeechEnabled = computed(() => mode.value === 'dj' ? djSettings.enableDjSpeech : djSettings.enableChatSpeech)
+    let speechController = null
+    const cancelMessageSpeech = () => {
+      speechController?.abort()
+      speechController = null
+    }
     const toggleSpeechEnabled = () => {
+      cancelMessageSpeech()
       if (mode.value === 'dj') {
         djSettings.enableDjSpeech = !djSettings.enableDjSpeech
         if (!djSettings.enableDjSpeech) stopDjSpeech()
@@ -646,7 +662,7 @@ export default {
     // 判断某张音乐卡片是否正在由主播放器播放
     const isCardCurrentlyPlaying = (card) => {
       if (!isPlay.value || !musicInfo.name) return false
-      if (card.id && musicInfo.id === card.id) return true
+      if (card.id && musicInfo.id) return musicInfo.id === card.id
       return musicInfo.name === card.name && (!card.singer || musicInfo.singer === card.singer)
     }
 
@@ -672,19 +688,31 @@ export default {
 
     const speakMessageText = async(text) => {
       if (!text) return
+      cancelMessageSpeech()
+      stopDjSpeech()
+      const controller = new AbortController()
+      speechController = controller
       try {
-        const audioUrl = await synthesizeSpeech(text)
+        const audioUrl = await synthesizeSpeech(text, { signal: controller.signal })
+        if (controller.signal.aborted) {
+          if (audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl)
+          return
+        }
         playDjSpeech(audioUrl)
       } catch (err) {
-        console.error('朗读消息失败:', err)
+        if (err.name !== 'AbortError') void dialog({ message: `朗读失败：${err.message}` })
+      } finally {
+        if (speechController === controller) speechController = null
       }
     }
 
     // 播放音乐卡片（包装：播放后加入推荐历史）
     const toggleMusicPlay = async(card) => {
-      await chatToggleMusicPlay(card)
-      if (card?.name) {
-        addSongsToRecommend([card])
+      try {
+        await chatToggleMusicPlay(card)
+        if (card?.name) addSongsToRecommend([card])
+      } catch (err) {
+        void dialog({ message: err.message })
       }
     }
 
@@ -779,7 +807,6 @@ export default {
       messageList,
       inputMessage,
       isGenerating,
-      isPlayingMusic,
       hasMessages,
       activeFeatureTag,
       showPlusMenu,
@@ -1745,12 +1772,12 @@ export default {
   justify-content: center;
   color: var(--color-font-label);
   border-color: var(--color-primary-light-500-alpha-300);
-  &:hover { color: #ec4141; border-color: rgba(236, 65, 65, 0.45); }
+  &:hover { color: var(--color-primary); border-color: var(--color-primary); }
 }
 .favSongActive {
-  color: #ec4141;
-  border-color: rgba(236, 65, 65, 0.5);
-  background: rgba(236, 65, 65, 0.08);
+  color: var(--color-primary);
+  border-color: var(--color-primary);
+  background: var(--color-primary-alpha-900);
 }
 .retryBtn { margin-top: 10px; &:disabled { opacity: .5; } }
 .messageToolbar {

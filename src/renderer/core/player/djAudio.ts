@@ -104,8 +104,8 @@ const speakWithWebSpeech = (text: string) => {
     window.speechSynthesis.cancel()
     const utterance = new SpeechSynthesisUtterance(text)
     utterance.lang = djSettings.ttsLang || 'zh-CN'
-    utterance.rate = 1.0
-    utterance.pitch = 1.0
+    utterance.rate = djSettings.ttsSpeed || 1
+    utterance.pitch = djSettings.ttsPitch || 1
 
     const voice = getBestVoice(djSettings.ttsLang, djSettings.ttsVoice)
     if (voice) utterance.voice = voice

@@ -1,0 +1,32 @@
+/** Official public TTS 2.0 catalog, verified 2026-10-16. Account permissions are checked by preview. */
+export const VOLCENGINE_VOICE_SOURCE = 'https://docs.volcengine.com/docs/DoubaoVoice/Tonelist-1?lang=zh'
+export interface DjVoice { id: string, name: string, language: string }
+export const VOLCENGINE_VOICES: DjVoice[] = [
+  ['zh_female_vv_uranus_bigtts', 'Vivi 2.0'],
+  ['zh_female_xiaohe_uranus_bigtts', '小何 2.0'],
+  ['zh_male_m191_uranus_bigtts', '云舟 2.0'],
+  ['zh_male_taocheng_uranus_bigtts', '小天 2.0'],
+  ['zh_male_liufei_uranus_bigtts', '刘飞 2.0'],
+  ['zh_female_sophie_uranus_bigtts', '魅力苏菲 2.0'],
+  ['zh_female_qingxinnvsheng_uranus_bigtts', '清新女声 2.0'],
+  ['zh_female_cancan_uranus_bigtts', '知性灿灿 2.0'],
+  ['zh_male_kailangxuezhang_uranus_bigtts', '开朗学长 2.0'],
+  ['zh_male_youyoujunzi_uranus_bigtts', '悠悠君子 2.0'],
+  ['zh_female_wenjingmaomao_uranus_bigtts', '文静毛毛 2.0'],
+  ['zh_female_zhixingnv_uranus_bigtts', '知性女声 2.0'],
+  ['zh_male_qingshuangnanda_uranus_bigtts', '清爽男大 2.0'],
+  ['zh_male_yuanboxiaoshu_uranus_bigtts', '渊博小叔 2.0'],
+  ['zh_male_yangguangqingnian_uranus_bigtts', '阳光青年 2.0'],
+  ['zh_female_qingchezizi_uranus_bigtts', '清澈梓梓 2.0'],
+  ['zh_female_tianmeiyueyue_uranus_bigtts', '甜美悦悦 2.0'],
+  ['zh_female_xinlingjitang_uranus_bigtts', '心灵鸡汤 2.0'],
+  ['zh_male_wenrouxiaoge_uranus_bigtts', '温柔小哥 2.0'],
+  ['zh_female_roumeinvyou_uranus_bigtts', '柔美女友 2.0'],
+  ['zh_male_dongfanghaoran_uranus_bigtts', '东方浩然 2.0'],
+  ['zh_female_wenrouxiaoya_uranus_bigtts', '温柔小雅 2.0'],
+  ['zh_male_tiancaitongsheng_uranus_bigtts', '天才童声 2.0'],
+  ['zh_female_wuzetian_uranus_bigtts', '武则天 2.0'],
+  ['zh_female_gujie_uranus_bigtts', '顾姐 2.0'],
+  ['zh_male_guanggaojieshuo_uranus_bigtts', '广告解说 2.0'],
+  ['zh_female_shaoergushi_uranus_bigtts', '少儿故事 2.0'],
+].map(([id, name]) => ({ id, name, language: 'zh-CN' }))

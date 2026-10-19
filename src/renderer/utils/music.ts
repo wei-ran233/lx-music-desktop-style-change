@@ -89,6 +89,7 @@ export const createLocalMusicInfo = async(path: string): Promise<LX.Music.MusicI
     interval,
     meta: {
       albumName,
+      genre: metadata.common.genre,
       filePath: path,
       songId: path,
       picUrl: '',

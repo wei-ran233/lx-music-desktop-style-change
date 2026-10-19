@@ -383,12 +383,13 @@ export function useDjChat() {
     ) {
       if (isStaleGeneration()) return
       try {
+        generationStatus.value = { phase: 'speaking', text: '正在合成语音，长串词可能需要几十秒' }
         const audioUrl = await synthesizeSpeech(aiText, { signal })
         if (isStaleGeneration() || !(mode === 'dj' ? djSettings.enableDjSpeech : djSettings.enableChatSpeech)) {
           if (audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl)
           return
         }
-        playDjSpeech(audioUrl)
+        await playDjSpeech(audioUrl)
       } catch (err) {
         if (!isAbortError(err)) generationStatus.value = { phase: 'error', text: `语音播报失败：${(err as Error).message}` }
       }
@@ -488,15 +489,15 @@ export function useDjChat() {
               (mode === 'chat' && djSettings.enableChatSpeech)
           ) {
             try {
-              generationStatus.value = { phase: 'speaking', text: '正在准备语音播报' }
+              generationStatus.value = { phase: 'speaking', text: '正在合成语音，长串词可能需要几十秒' }
               const audioUrl = await synthesizeSpeech(textToSpeak, { signal })
               if (isStaleGeneration() || !(mode === 'dj' ? djSettings.enableDjSpeech : djSettings.enableChatSpeech)) {
                 if (audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl)
                 return
               }
-              playDjSpeech(audioUrl)
+              await playDjSpeech(audioUrl)
             } catch (err) {
-              if (!isAbortError(err)) console.error('TTS 播报异常:', err)
+              if (!isAbortError(err) && !isStaleGeneration()) generationStatus.value = { phase: 'error', text: `语音播报失败：${(err as Error).message}。可点击回复下方的朗读按钮重试` }
             }
           }
         },

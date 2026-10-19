@@ -1,3 +1,4 @@
+import { refreshUserProfileFavorites } from '@renderer/utils/dj/userProfile'
 import { getPlayInfo } from '@renderer/utils/ipc'
 import music from '@renderer/utils/musicSdk'
 import { log } from '@common/utils'
@@ -50,9 +51,11 @@ export default () => {
     })
     void music.init() // 初始化音乐sdk
     unregister = registerAction((ids) => {
+      if (ids.includes(LIST_IDS.LOVE)) void refreshUserProfileFavorites().catch(err => { log.error(err) })
       window.app_event.myListUpdate(ids)
     })
     window.lxData.userLists = await getUserLists() // 获取用户列表
+    await refreshUserProfileFavorites().catch(err => { log.error(err) })
     await getListMusics(LIST_IDS.DEFAULT).catch(err => { log.error(err) }) // 首次启动预加载默认列表
     unregisterDislikeEvent = registerRemoteDislikeAction()
     await initDislikeInfo() // 获取不喜欢列表

@@ -7,8 +7,7 @@
  * 当用户配置了 API Key 时，LLM 层优先使用此引擎作为降级方案。
  */
 
-import { loveList } from '@renderer/store/list/state'
-import { analyzeUserProfile, matchesMusicPreference } from '@renderer/utils/dj/userProfile'
+import { analyzeUserProfile, matchesMusicPreference, isMusicExcluded, getFavoriteSongs } from '@renderer/utils/dj/userProfile'
 import { djSettings } from '@renderer/store/dj'
 import type { DjMode, TimePeriod, WeatherType, MusicGenre, DjIntroText, RecommendResult } from './types'
 
@@ -389,7 +388,7 @@ export const recommendFromLoveList = (
   mode: DjMode = 'dj',
   options: { query?: string, limit?: number } = {},
 ): RecommendResult[] => {
-  const songs = (loveList as any)?.list ?? []
+  const songs = getFavoriteSongs()
   if (songs.length === 0) return []
 
   const period = getTimePeriod()
@@ -398,7 +397,7 @@ export const recommendFromLoveList = (
   const topArtistsSet = new Set(profile.topArtists.map(a => a.toLowerCase()))
 
   // 多维评分：偏好歌手 + 历史播放频次 + 天气/时段关键词匹配度
-  const scored = songs.filter((song: any) => matchesMusicPreference(song.name || '', song.singer || '', options.query ?? '')).map((song: any) => {
+  const scored = songs.filter((song: any) => !isMusicExcluded(song) && matchesMusicPreference(song.name || '', song.singer || '', options.query ?? '')).map((song: any) => {
     let score = 0.5 // 基础分
     const name = String(song.name || '').toLowerCase()
     const singer = String(song.singer || '').toLowerCase()

@@ -13,9 +13,9 @@ import type { WeatherData, WeatherType, CitySearchResult } from '@renderer/utils
 // 模块级单例天气状态（页面卸载后仍存活，供 DJ 自动连播跨页面使用）
 const weatherData = ref<WeatherData>({
   city: '北京',
-  weather: '晴',
-  temp: '22°C',
-  fullText: '北京 | 晴 22°C',
+  weather: '天气待更新',
+  temp: '',
+  fullText: '天气待更新',
   type: 'sunny',
 })
 const isLoading = ref(false)
@@ -43,17 +43,13 @@ export function useDjWeather() {
         type: detectWeatherType(data.weather),
       }
     } catch (e) {
-      error.value = '获取天气失败'
-      console.error('天气获取失败:', e)
-      // 使用 fallback
-      const hours = new Date().getHours()
-      const isNight = hours >= 19 || hours < 6
+      error.value = (e as Error).message || '获取天气失败'
       weatherData.value = {
         city: city.value,
-        weather: isNight ? '晴夜' : '晴',
-        temp: '22°C',
-        fullText: `${city.value} | ${isNight ? '晴夜' : '晴'} 22°C`,
-        type: isNight ? 'night' : 'sunny',
+        weather: error.value,
+        temp: '',
+        fullText: `${city.value} | ${error.value}`,
+        type: 'sunny',
       }
     } finally {
       isLoading.value = false

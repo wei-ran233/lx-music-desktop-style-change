@@ -13,9 +13,11 @@ import {
 } from '@renderer/store/dj'
 import type { DjMode, HistoryItem, ChatMessage, MusicCard } from '@renderer/utils/dj/types'
 
+// Keep the session identity alive alongside useDjChat's module-level messages.
+const activeHistoryId = ref('')
+
 export function useDjHistory() {
   const historyCategory = ref<'dj' | 'chat' | 'recommend'>('dj')
-  const activeHistoryId = ref('')
   const historyQuery = ref('')
 
   const currentHistoryList = computed(() => {
@@ -95,7 +97,7 @@ export function useDjHistory() {
     const serialized = serializeMessages(messages)
 
     if (!activeHistoryId.value) {
-      activeHistoryId.value = `${mode}-${Date.now()}`
+      activeHistoryId.value = `${mode}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
       targetList.unshift({
         id: activeHistoryId.value,
         type: 'history',

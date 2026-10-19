@@ -49,21 +49,21 @@ const setCached = <T>(cache: Map<string, CacheEntry<T>>, key: string, data: T, t
   })
 }
 
-const fetchJson = async(url: string): Promise<any> => {
-  const response = await fetch(url, { signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
+const fetchJson = async(url: string, apiKey?: string): Promise<any> => {
+  const response = await fetch(url, { headers: apiKey ? { 'X-QW-Api-Key': apiKey.trim() } : undefined, signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) })
   if (!response.ok) throw new Error(`HTTP ${response.status}`)
   return response.json()
 }
 
 const getWeatherCacheKey = () => [
   djSettings.city || '成都',
-  djSettings.weatherApiKey ? 'keyed' : 'free',
+  djSettings.weatherApiKey?.trim() || 'free',
   djSettings.weatherApiHost?.trim() || '',
 ].join('|')
 
 const getCityCacheKey = (keyword: string) => [
   keyword,
-  djSettings.weatherApiKey ? 'keyed' : 'free',
+  djSettings.weatherApiKey?.trim() || 'free',
   djSettings.weatherApiHost?.trim() || '',
 ].join('|')
 
@@ -94,13 +94,13 @@ const doSearchCities = async(trimKw: string): Promise<CitySearchResult[]> => {
   const apiKey = djSettings.weatherApiKey
   const isCustomHost = !!djSettings.weatherApiHost?.trim()
   const apiHost = djSettings.weatherApiHost?.trim() || 'geoapi.qweather.com'
-  const finalHost = apiHost.startsWith('http') ? apiHost : `https://${apiHost}`
+  const finalHost = (apiHost.startsWith('http') ? apiHost : `https://${apiHost}`).replace(/\/+$/, '')
   const geoPath = isCustomHost ? '/geo/v2/city/lookup' : '/v2/city/lookup'
 
   if (apiKey) {
     try {
-      const url = `${finalHost}${geoPath}?location=${encodeURIComponent(trimKw)}&key=${apiKey}&range=cn&number=10`
-      const data = await fetchJson(url)
+      const url = `${finalHost}${geoPath}?location=${encodeURIComponent(trimKw)}&range=cn&number=10`
+      const data = await fetchJson(url, apiKey)
 
       if (data.code === '200' && Array.isArray(data.location)) {
         return data.location.map((item: any) => {
@@ -143,10 +143,10 @@ const doSearchCities = async(trimKw: string): Promise<CitySearchResult[]> => {
  * 实时获取当前城市天气
  * 支持和风天气 API 以及免费实测 API 自动查询
  */
-export const fetchCurrentWeather = async(): Promise<WeatherData> => {
+export const fetchCurrentWeather = async(force = false): Promise<WeatherData> => {
   const cacheKey = getWeatherCacheKey()
   const cached = getCached(weatherCache, cacheKey)
-  if (cached) return cached
+  if (cached && !force) return cached
 
   if (pendingWeather?.key === cacheKey) return pendingWeather.promise
 
@@ -167,25 +167,27 @@ const doFetchCurrentWeather = async(): Promise<WeatherData> => {
   const geoHost = djSettings.weatherApiHost?.trim() || 'geoapi.qweather.com'
   const weatherHost = djSettings.weatherApiHost?.trim() || 'devapi.qweather.com'
 
-  const geoUrl = geoHost.startsWith('http') ? geoHost : `https://${geoHost}`
-  const weatherUrl = weatherHost.startsWith('http') ? weatherHost : `https://${weatherHost}`
+  const geoUrl = (geoHost.startsWith('http') ? geoHost : `https://${geoHost}`).replace(/\/+$/, '')
+  const weatherUrl = (weatherHost.startsWith('http') ? weatherHost : `https://${weatherHost}`).replace(/\/+$/, '')
   const geoPath = isCustomHost ? '/geo/v2/city/lookup' : '/v2/city/lookup'
 
   // 1. 如果配置了和风天气 API Key，调用官方接口
   if (apiKey) {
     try {
       const geoData = await fetchJson(
-        `${geoUrl}${geoPath}?location=${encodeURIComponent(city)}&key=${apiKey}`,
+        `${geoUrl}${geoPath}?location=${encodeURIComponent(city)}`, apiKey,
       )
 
+      if (geoData.code !== '200') throw new Error(`城市查询失败（${geoData.code}），请检查 API Key、API Host 和权限`)
       if (geoData.code === '200' && geoData.location?.[0]?.id) {
         const locationId = geoData.location[0].id
         const cityName = geoData.location[0].name || city
 
         const weatherData = await fetchJson(
-          `${weatherUrl}/v7/weather/now?location=${locationId}&key=${apiKey}`,
+          `${weatherUrl}/v7/weather/now?location=${locationId}`, apiKey,
         )
 
+        if (weatherData.code !== '200') throw new Error(`实时天气查询失败（${weatherData.code}），请检查订阅和权限`)
         if (weatherData.code === '200' && weatherData.now) {
           const now = weatherData.now
           const weatherText = now.text
@@ -201,8 +203,9 @@ const doFetchCurrentWeather = async(): Promise<WeatherData> => {
           }
         }
       }
+      throw new Error('接口未返回有效的城市或实时天气数据')
     } catch (err) {
-      console.error('和风天气 API 请求失败:', err)
+      throw new Error(`和风天气：${(err as Error).message}`)
     }
   }
 
@@ -224,13 +227,5 @@ const doFetchCurrentWeather = async(): Promise<WeatherData> => {
     console.warn('wttr.in 免 Key 接口请求失败, 使用时间段自适应:', err)
   }
 
-  // 3. 时间段+天气自适应 Fallback
-  const hours = new Date().getHours()
-  const isNight = hours >= 19 || hours < 6
-  return {
-    city,
-    weather: isNight ? '晴夜' : '晴',
-    temp: '22°C',
-    fullText: `${city} | ${isNight ? '晴夜' : '晴'} 22°C`,
-  }
+  throw new Error('实时天气暂不可用，请稍后重试')
 }

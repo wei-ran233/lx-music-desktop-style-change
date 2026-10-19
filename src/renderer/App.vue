@@ -49,7 +49,7 @@ html {
   height: 100vh;
 }
 html, body {
-  // overflow: hidden;
+  overflow: hidden;
   box-sizing: border-box;
 }
 
@@ -88,6 +88,7 @@ body {
     border-radius: var(--radius-sm);
   }
   #root {
+    isolation: isolate;
     box-shadow: 0 0 var(--layout-shadow-size) rgba(0, 0, 0, 0.5);
     border-radius: var(--radius-sm);
   }
@@ -115,6 +116,7 @@ body {
 .fullscreen,
 .maximized {
   background-color: var(--color-content-background);
+  padding: 0;
 
   #body,
   #root {
@@ -130,6 +132,7 @@ body {
 }
 
 #container {
+  border-radius: inherit;
   position: relative;
   display: flex;
   height: 100%;

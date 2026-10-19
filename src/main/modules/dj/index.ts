@@ -19,7 +19,8 @@ export default () => {
     const key = `${event.sender.id}:${request.id}`
     const controller = new AbortController()
     pending.set(key, controller)
-    const timeout = setTimeout(() => { controller.abort() }, request.operation === 'stream' ? 120000 : request.operation === 'tts-voices' ? 45000 : 30000)
+    let timedOut = false
+    const timeout = setTimeout(() => { timedOut = true; controller.abort() }, request.operation === 'stream' ? 120000 : request.operation === 'tts' ? 65000 : request.operation === 'tts-voices' ? 45000 : 30000)
     const destroyed = () => { controller.abort() }
     event.sender.once('destroyed', destroyed)
     let resolvedSettings: Record<string, any> = {}
@@ -50,11 +51,11 @@ export default () => {
       return { value }
     } catch (error: any) {
       // Remove configured credentials from errors before crossing back to the UI.
-      let message = String(error.message ?? 'AI 服务请求失败')
+      let message = timedOut ? (request.operation === 'tts' ? '语音合成服务超时，请缩短串词或稍后重试' : 'AI 服务请求超时，请稍后重试') : String(error.message ?? 'AI 服务请求失败')
       for (const value of [resolvedSettings.apiKey, resolvedSettings.ttsApiKey, resolvedSettings.ttsEngine === 'iflytek-tts' ? resolvedSettings.ttsCustomUrl : '']) {
         if (typeof value === 'string' && value.length > 3) message = message.split(value).join('[已隐藏]')
       }
-      return { error: { name: controller.signal.aborted ? 'AbortError' : 'Error', message: message.slice(0, 1000) } }
+      return { error: { name: controller.signal.aborted && !timedOut ? 'AbortError' : 'Error', message: message.slice(0, 1000) } }
     } finally {
       clearTimeout(timeout)
       event.sender.removeListener('destroyed', destroyed)

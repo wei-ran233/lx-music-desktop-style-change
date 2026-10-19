@@ -79,6 +79,12 @@ export interface UserTasteProfile {
   topArtists: string[]
   topGenres: MusicGenre[]
   sampleCount: number
+  automaticArtists: Array<{ name: string, score: number, favorites: number, listens: number }>
+  inferredGenreTags: string[]
+  knownGenreCount: number
+  analyzedSongCount: number
+  listeningCount: number
+  timePeriodSongs: Array<{ period: TimePeriod, label: string, songs: Array<{ name: string, singer: string, count: number, lastPlayedAt: number }> }>
   genreTags: string[]
   /** 曲风占比（0-100，按播放次数加权） */
   genreDistribution: Array<{ name: string, percent: number }>

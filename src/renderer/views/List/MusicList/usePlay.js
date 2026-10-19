@@ -1,4 +1,4 @@
-import { addTempPlayList, clearPlayedList, clearTempPlayeList, setPlayListId, setPlayMusicInfo } from '@renderer/store/player/action'
+import { getList, addTempPlayList, clearPlayedList, clearTempPlayeList, setPlayListId, setPlayMusicInfo } from '@renderer/store/player/action'
 import { playList } from '@renderer/core/player'
 import { appSetting } from '@renderer/store/setting'
 import { LIST_IDS } from '@common/constants'
@@ -8,9 +8,6 @@ import { handlePlay } from '@renderer/core/player/action'
 import { toRaw } from '@common/utils/vueTools'
 
 export default ({ props, selectedList, list, removeAllSelect }) => {
-  let clickTime = 0
-  let clickIndex = -1
-
   const handlePlayMusic = (index) => {
     const targetMusic = list.value[index]
     if (!targetMusic) return
@@ -57,34 +54,22 @@ export default ({ props, selectedList, list, removeAllSelect }) => {
     }
   }
 
-  const handlePlayAll = (index = 0) => {
-    if (!list.value.length) return
-    const targetMusic = list.value[index] || list.value[0]
-    if (!targetMusic) return
+  const handlePlayAll = async(index = 0) => {
+    // Vue passes the click event to a bare handler. Only accept an actual index.
+    index = Number.isInteger(index) && index >= 0 && index < list.value.length ? index : 0
+    const songs = list.value.map(toRaw)
+    if (!songs.length) return
+    const sourceSongs = getList(props.listId)
 
-    const isSwitch = appSetting['player.isSwitchPlayListOnPlay']
-    const isAutoClean = appSetting['player.isAutoCleanPlayedList']
-
-    if (isAutoClean && playMusicInfo.listId === props.listId) {
-      clearPlayedList()
-    }
-
-    if (isSwitch) {
+    // Resolve by identity: the displayed list may be filtered or sorted.
+    if (appSetting['player.isSwitchPlayListOnPlay'] && songs.length === sourceSongs.length && songs.every((song, i) => song.id === sourceSongs[i]?.id)) {
       playList(props.listId, index)
-    } else {
-      if (props.listId === LIST_IDS.DEFAULT) {
-        playList(LIST_IDS.DEFAULT, index)
-      } else {
-        const prevListId = playInfo.playerListId
-        setPlayListId(LIST_IDS.DEFAULT)
-        setPlayMusicInfo(LIST_IDS.DEFAULT, targetMusic)
-        if (appSetting['player.isAutoCleanPlayedList'] || prevListId != LIST_IDS.DEFAULT) clearPlayedList()
-        clearTempPlayeList()
-        handlePlay()
-
-        setListMusics(LIST_IDS.DEFAULT, list.value.map(toRaw)).catch((err) => { console.error('setListMusics error:', err) })
-      }
+      return
     }
+    // Commit the complete queue before starting playback, so next/auto-next
+    // cannot consume the previous directory while persistence is in flight.
+    await setListMusics(LIST_IDS.DEFAULT, songs)
+    playList(LIST_IDS.DEFAULT, index)
   }
 
   const handlePlayMusicLater = (index, single) => {
@@ -96,24 +81,9 @@ export default ({ props, selectedList, list, removeAllSelect }) => {
     }
   }
 
-  const doubleClickPlay = index => {
-    if (
-      window.performance.now() - clickTime > 400 ||
-      clickIndex !== index
-    ) {
-      clickTime = window.performance.now()
-      clickIndex = index
-      return
-    }
-    handlePlayMusic(index, true)
-    clickTime = 0
-    clickIndex = -1
-  }
-
   return {
     handlePlayMusic,
     handlePlayAll,
     handlePlayMusicLater,
-    doubleClickPlay,
   }
 }

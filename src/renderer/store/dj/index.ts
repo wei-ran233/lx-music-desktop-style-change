@@ -294,8 +294,8 @@ export const saveHistory = () => {
     }
     const json = JSON.stringify(payload)
     if (json === lastHistoryJson) return
-    lastHistoryJson = json
     localStorage.setItem(HISTORY_STORAGE_KEY, json)
+    lastHistoryJson = json
   } catch (err) {
     console.error('保存 AI DJ 历史记录失败:', err)
   }

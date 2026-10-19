@@ -385,16 +385,54 @@
                 <input v-model="form.weatherApiKey" type="password" placeholder="填入 key 可自动感知天气" :class="$style.input" />
                 <p :class="$style.fieldTip">留空时自动使用免费天气接口，无需 Key</p>
               </div>
+              <div :class="$style.formGroup">
+                <label>和风天气 API Host</label>
+                <input v-model="form.weatherApiHost" placeholder="控制台 → 设置中的专属域名，如 xxx.qweatherapi.com" :class="$style.input" />
+                <p :class="$style.fieldTip">使用 API Key 时请同时填写专属 API Host，旧公共域名正在停用。</p>
+                <button type="button" :class="$style.secondaryBtn" :disabled="weatherTesting" @click="testWeather">{{ weatherTesting ? '正在测试…' : '保存并测试天气' }}</button>
+                <p v-if="weatherTestResult" role="status" :class="$style.fieldTip">{{ weatherTestResult }}</p>
+              </div>
             </div>
 
             <!--  用户画像 -->
             <div v-if="activeCategory === 'profile'" :class="$style.section">
-              <h4 :class="$style.sectionTitle"><DjIcon name="chart" /> 用户品味画像</h4>
-              <p :class="$style.fieldTip">下方标签由本地分析生成，你也可以手动添加/删除来微调推荐偏好。</p>
+              <h4 :class="$style.sectionTitle"><DjIcon name="chart" /> 音乐偏好</h4>
+              <p :class="$style.fieldTip">根据收藏和有效收听在本地自动更新。收听满 30 秒或歌曲时长的 30%（取较小值）计一次；拖动进度、暂停和加载不计入。</p>
 
               <div :class="$style.profileCard">
                 <div :class="$style.profileBlock">
-                  <div :class="$style.profileLabel"><DjIcon name="music" /> 主打曲风（可编辑）</div>
+                  <div :class="$style.profileLabel"><DjIcon name="voice" /> 自动提取的喜欢歌手</div>
+                  <p v-if="!profileSummary.autoArtists.length" :class="$style.fieldTip">还没有足够的收藏或收听记录，听几首喜欢的歌后会自动出现。</p>
+                  <div v-for="artist in profileSummary.autoArtists" :key="artist.name" :class="$style.artistEvidence">
+                    <span :class="$style.distName">{{ artist.name }}</span>
+                    <span :class="$style.fieldTip">收藏 {{ artist.favorites }} 首 · 有效收听 {{ artist.listens }} 次</span>
+                    <button type="button" :class="$style.resetBtn" :aria-label="'忽略歌手 ' + artist.name" @click="ignoreProfileTag('artists', artist.name)">不符合</button>
+                  </div>
+                </div>
+                <div :class="$style.profileBlock">
+                  <div :class="$style.profileLabel"><DjIcon name="music" /> 自动提取的曲风</div>
+                  <p :class="$style.fieldTip">{{ profileSummary.knownGenreCount }} / {{ profileSummary.analyzedSongCount }} 首歌曲有可识别曲风标签。缺少标签的歌曲保留为未知，不根据歌手姓名猜测。</p>
+                  <div :class="$style.tagCloud">
+                    <button v-for="genre in profileSummary.automaticGenres" :key="genre" type="button" :class="$style.tag" :title="'忽略曲风：' + genre" @click="ignoreProfileTag('genres', genre)">{{ genre }} ×</button>
+                    <span v-if="!profileSummary.automaticGenres.length" :class="$style.tagEmpty">暂无可确认曲风，可手动设置偏好或导入带曲风标签的本地音乐。</span>
+                  </div>
+                  <p v-if="profileSummary.genreHints.length" :class="$style.fieldTip">标题线索（待确认，尚未作为已知偏好）：{{ profileSummary.genreHints.join('、') }}</p>
+                  <button v-for="hint in profileSummary.genreHints" :key="hint" type="button" :class="$style.resetBtn" @click="confirmGenre(hint)">确认喜欢 {{ hint }}</button>
+                </div>
+                <div :class="$style.profileBlock">
+                  <div :class="$style.profileLabel"><DjIcon name="radio" /> 各时段常听歌曲</div>
+                  <p :class="$style.fieldTip">按实际收听发生的本地时间统计近 90 天记录。旧记录没有时间戳，无法恢复时段；最多保留最近 5000 次有效收听。</p>
+                  <details v-for="group in profileSummary.timeSongs" :key="group.period" :open="group.songs.length > 0" :class="$style.periodGroup">
+                    <summary>{{ group.label }} · {{ group.songs.length ? '常听 ' + group.songs.length + ' 首' : '暂无记录' }}</summary>
+                    <div v-for="song in group.songs" :key="song.name + song.singer" :class="$style.periodSong">
+                      <span>{{ song.name }}<small> · {{ song.singer || '歌手未知' }}</small></span>
+                      <span>{{ song.count }} 次</span>
+                    </div>
+                  </details>
+                </div>
+
+                <div :class="$style.profileBlock">
+                  <div :class="$style.profileLabel"><DjIcon name="music" /> 明确喜欢的曲风（可编辑）</div>
                   <div :class="$style.tagCloud">
                     <span
                       v-for="(g, i) in editableTags.genres"
@@ -418,7 +456,7 @@
                 </div>
 
                 <div :class="$style.profileBlock">
-                  <div :class="$style.profileLabel"><DjIcon name="voice" /> 偏爱歌手（可编辑）</div>
+                  <div :class="$style.profileLabel"><DjIcon name="voice" /> 明确喜欢的歌手（可编辑）</div>
                   <div :class="$style.tagCloud">
                     <span
                       v-for="(a, i) in editableTags.artists"
@@ -443,7 +481,7 @@
 
                 <!-- 曲风占比（参考大厂音乐口味分析） -->
                 <div v-if="profileSummary.genreDist.length" :class="$style.profileBlock">
-                  <div :class="$style.profileLabel"><DjIcon name="chart" /> 曲风占比</div>
+                  <div :class="$style.profileLabel"><DjIcon name="chart" /> 已识别曲风的加权占比</div>
                   <div :class="$style.distList">
                     <div v-for="(g, i) in profileSummary.genreDist" :key="'gd-' + i" :class="$style.distItem">
                       <span :class="$style.distName">{{ g.name }}</span>
@@ -469,9 +507,14 @@
                   </div>
                 </div>
 
+                <div v-if="editableTags.excludedArtists?.length || editableTags.excludedGenres?.length" :class="$style.profileBlock">
+                  <div :class="$style.profileLabel">已忽略（点击恢复自动学习）</div>
+                  <button v-for="tag in editableTags.excludedArtists" :key="'artist-' + tag" type="button" :class="$style.resetBtn" @click="restoreProfileTag('artists', tag)">{{ tag }} · 恢复</button>
+                  <button v-for="tag in editableTags.excludedGenres" :key="'genre-' + tag" type="button" :class="$style.resetBtn" @click="restoreProfileTag('genres', tag)">{{ tag }} · 恢复</button>
+                </div>
                 <div :class="$style.profileBlock">
                   <div :class="$style.profileLabel"><DjIcon name="book" /> 学习样本</div>
-                  <div :class="$style.profileSample">已分析 "我的喜爱" 歌单 {{ profileSummary.sampleCount }} 首歌曲</div>
+                  <div :class="$style.profileSample">收藏 {{ profileSummary.sampleCount }} 首 · 近 90 天有效收听 {{ profileSummary.listeningCount }} 次 · 更新于 {{ profileSummary.updatedAt }}</div>
                 </div>
               </div>
 
@@ -516,8 +559,8 @@ import { sanitizeVoiceList } from '@common/dj/voiceCatalog'
 import { djRequest } from '@renderer/utils/dj/serviceBridge'
 import { VOLCENGINE_VOICES } from '@common/dj/voices'
 import { synthesizeSpeech } from '@renderer/utils/dj/ttsService'
-import { searchCities } from '@renderer/utils/dj/weatherService'
-import { analyzeUserProfile, getUserTags, saveUserTags } from '@renderer/utils/dj/userProfile'
+import { searchCities, fetchCurrentWeather } from '@renderer/utils/dj/weatherService'
+import { analyzeUserProfile, getUserTags, saveUserTags, setProfileTagExcluded } from '@renderer/utils/dj/userProfile'
 import { getModelPresets } from '@renderer/utils/dj/llmService'
 import { detectAllLocalEngines } from '@renderer/utils/dj/ai/localDiscovery'
 import { showSelectDialog, openSaveDir } from '@renderer/utils/ipc'
@@ -545,6 +588,19 @@ export default {
     const activeCategory = ref('llm')
     const showApiKey = ref(false)
     const showPopularCity = ref(false)
+    const weatherTesting = ref(false)
+    const weatherTestResult = ref('')
+    const testWeather = async() => {
+      weatherTesting.value = true
+      weatherTestResult.value = ''
+      try {
+        await saveDjSettings({ ...djSettings, city: form.city, weatherApiKey: form.weatherApiKey, weatherApiHost: form.weatherApiHost })
+        const data = await fetchCurrentWeather(true)
+        weatherTestResult.value = `成功：${data.fullText}`
+      } catch (err) {
+        weatherTestResult.value = `测试失败：${err.message}`
+      } finally { weatherTesting.value = false }
+    }
     const testing = ref(false)
     const testResult = ref(null)
     let searchTimer = null
@@ -737,6 +793,14 @@ export default {
         moodList: profile.moodTags?.length ? profile.moodTags : [],
         langList: profile.langTags?.length ? profile.langTags : [],
         sampleCount: profile.sampleCount,
+        autoArtists: profile.automaticArtists,
+        automaticGenres: profile.genreDistribution.map(g => g.name),
+        genreHints: profile.inferredGenreTags,
+        timeSongs: profile.timePeriodSongs,
+        knownGenreCount: profile.knownGenreCount,
+        analyzedSongCount: profile.analyzedSongCount,
+        listeningCount: profile.listeningCount,
+        updatedAt: profile.lastAnalyzedTime,
       }
     })
 
@@ -752,15 +816,26 @@ export default {
       const list = editableTags.value[type]
       if (!list.includes(tag)) {
         list.push(tag)
+        const key = type === 'genres' ? 'excludedGenres' : 'excludedArtists'
+        editableTags.value[key] = (editableTags.value[key] ?? []).filter(t => t.toLowerCase() !== tag.toLowerCase())
         saveUserTags(editableTags.value)
       }
       if (type === 'genres') newGenreTag.value = ''
       else newArtistTag.value = ''
     }
 
-    const removeTag = (type, index) => {
-      editableTags.value[type].splice(index, 1)
-      saveUserTags(editableTags.value)
+    const ignoreProfileTag = (type, tag) => {
+      setProfileTagExcluded(type, tag, true)
+      editableTags.value = getUserTags()
+    }
+    const restoreProfileTag = (type, tag) => {
+      setProfileTagExcluded(type, tag, false)
+      editableTags.value = getUserTags()
+    }
+    const removeTag = (type, index) => { ignoreProfileTag(type, editableTags.value[type][index]) }
+    const confirmGenre = (genre) => {
+      newGenreTag.value = genre
+      addTag('genres')
     }
 
     watch(
@@ -1041,6 +1116,9 @@ export default {
     }
 
     return {
+      weatherTesting,
+      weatherTestResult,
+      testWeather,
       activeCategory,
       credentialStorage,
       categories,
@@ -1072,6 +1150,9 @@ export default {
       modelNamePlaceholder,
       isLocalProvider,
       profileSummary,
+      ignoreProfileTag,
+      restoreProfileTag,
+      confirmGenre,
       editableTags,
       newGenreTag,
       newArtistTag,
@@ -1807,4 +1888,13 @@ export default {
   .localEngineHeader { flex-wrap: wrap; gap: 8px; }
 }
 .advancedSettings { border-top: 1px solid var(--color-primary-alpha-200); padding-top: 12px; summary { cursor: pointer; font-size: 12px; color: var(--color-font-label); padding-bottom: 12px; } > div { margin-bottom: 16px; } }
+
+.artistEvidence { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 8px 0; }
+.artistEvidence .distName { width: auto; max-width: 100%; text-align: left; overflow-wrap: anywhere; }
+.artistEvidence .fieldTip { margin: 0; flex: 1; min-width: 160px; }
+.periodGroup { margin: 8px 0; border: 1px solid var(--color-primary-alpha-200); border-radius: 8px; padding: 8px 10px; }
+.periodGroup summary { cursor: pointer; font-size: 12px; color: var(--color-font); }
+.periodSong { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0 0; font-size: 12px; line-height: 1.5; }
+.periodSong small { color: var(--color-font-label); }
+
 </style>

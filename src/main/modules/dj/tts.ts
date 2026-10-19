@@ -11,7 +11,7 @@ export const createTtsService = (djSettings: DjSettingsState, request: typeof fe
     | 'volcengine-v3-tts'
     | 'custom-tts'
 
-  const TTS_HTTP_TIMEOUT_MS = 20000
+  const TTS_HTTP_TIMEOUT_MS = 60000
   const MAX_TTS_TEXT_LENGTH = 1200
 
   interface SynthesizeSpeechOptions {
@@ -72,7 +72,8 @@ export const createTtsService = (djSettings: DjSettingsState, request: typeof fe
       const body = await response.arrayBuffer()
       return new Response(body, { status: response.status, headers: response.headers })
     } catch (err) {
-      if (isAbortError(err) && !timedSignal.isTimeout()) throw createAbortError()
+      if (timedSignal.isTimeout()) throw new Error('语音合成超时（60 秒），请缩短串词或稍后重试')
+      if (isAbortError(err)) throw createAbortError()
       throw err
     } finally {
       timedSignal.cleanup()

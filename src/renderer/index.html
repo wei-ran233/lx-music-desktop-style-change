@@ -27,7 +27,13 @@
     document.documentElement.classList.add(/os=(\w+)/.exec(window.location.search)[1])
     window.shouldUseDarkColors = /dark=true/.test(window.location.search)
     window.dt = /dt=true/.test(window.location.search)
-    document.documentElement.classList.add(window.dt ? 'disableTransparent' : 'transparent')
+    // Match the native BrowserWindow, including Linux's opaque frameless window.
+    // Keep the fallback for older main processes loading a newer renderer.
+    const nativeTransparency = new URLSearchParams(window.location.search).get('transparent')
+    window.isTransparent = nativeTransparency === null
+      ? !window.dt && !/os=linux(?:&|$)/.test(window.location.search)
+      : nativeTransparency === 'true'
+    document.documentElement.classList.add(window.isTransparent ? 'transparent' : 'disableTransparent')
 
     window.dom_style = document.createElement('style')
 

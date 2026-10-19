@@ -1,77 +1,62 @@
-/**
- * 用户画像服务 — 本地化版本
- *
- * 核心改进：
- * 1. 完全本地计算，无需 LLM API
- * 2. 增加时段偏好分析（早上/下午/晚上爱听什么）
- * 3. 增加风格过渡分析
- * 4. 缓存分析结果，避免重复计算
- */
-
-import { loveList } from '@renderer/store/list/state'
+/** Local music preferences: explicit choices, favorites and effective listening. */
+import { ref } from '@common/utils/vueTools'
+import { getListMusics, getListMusicsFromCache } from '@renderer/store/list/action'
+import { LIST_IDS } from '@common/constants'
 import { addProfileLog } from '@renderer/store/dj'
 import type { UserTasteProfile, MusicGenre, TimePeriod } from './types'
+import { genreLabels, getGenreEvidence, getListeningPeriod, normalizeGenres, periodLabels, splitArtists, trackIdentity, type ListeningEvent } from './listeningProfile'
 
-const PROFILE_STORAGE_KEY = 'lx_ai_user_profile_v1'
+const PROFILE_STORAGE_KEY = 'lx_ai_user_profile_v1' // Preserve legacy data; it has no reliable timestamps.
+const EVENTS_STORAGE_KEY = 'lx_ai_listening_events_v2'
 const AI_SUMMARY_STORAGE_KEY = 'lx_ai_user_profile_summary_v1'
 const USER_TAGS_STORAGE_KEY = 'lx_ai_user_tags_v1'
-
-// 用户手动编辑的标签（曲风/歌手），合并进分析结果
-const loadUserTags = (): { genres: string[], artists: string[] } => {
-  try {
-    const raw = localStorage.getItem(USER_TAGS_STORAGE_KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw)
-      return {
-        genres: Array.isArray(parsed.genres) ? parsed.genres : [],
-        artists: Array.isArray(parsed.artists) ? parsed.artists : [],
-      }
-    }
-  } catch (e) {
-    console.error('加载用户标签异常:', e)
-  }
-  return { genres: [], artists: [] }
+const RETENTION_MS = 90 * 86400000
+const profileRevision = ref(0)
+export const getFavoriteSongs = () => getListMusicsFromCache(LIST_IDS.LOVE)
+export const refreshUserProfileFavorites = async() => {
+  await getListMusics(LIST_IDS.LOVE)
+  profileRevision.value++
 }
-
-export const getUserTags = (): { genres: string[], artists: string[] } => loadUserTags()
-
-export const saveUserTags = (tags: { genres: string[], artists: string[] }) => {
+interface UserTags { genres: string[], artists: string[], excludedGenres?: string[], excludedArtists?: string[] }
+const cleanTags = (value: unknown): string[] => Array.isArray(value) ? [...new Set(value.filter((v): v is string => typeof v === 'string').map(v => v.trim().slice(0, 100)).filter(Boolean))].slice(0, 40) : []
+export const getUserTags = (): UserTags => {
   try {
-    cachedProfile = null
-    localStorage.setItem(USER_TAGS_STORAGE_KEY, JSON.stringify({
-      genres: tags.genres.filter(Boolean).slice(0, 20),
-      artists: tags.artists.filter(Boolean).slice(0, 20),
-    }))
-  } catch (e) {
-    console.error('保存用户标签异常:', e)
-  }
+    const data = JSON.parse(localStorage.getItem(USER_TAGS_STORAGE_KEY) ?? '{}')
+    return { genres: cleanTags(data.genres), artists: cleanTags(data.artists), excludedGenres: cleanTags(data.excludedGenres), excludedArtists: cleanTags(data.excludedArtists) }
+  } catch { return { genres: [], artists: [], excludedGenres: [], excludedArtists: [] } }
 }
-
-// 本地缓存
-let cachedProfile: UserTasteProfile | null = null
-let lastAnalyzedLoveListKey = ''
-
-// ─── 本地数据持久化 ────────────────────────────────────
-
-const loadLocalProfileData = (): Record<string, number> => {
+export const saveUserTags = (tags: UserTags) => {
+  localStorage.setItem(USER_TAGS_STORAGE_KEY, JSON.stringify({ genres: cleanTags(tags.genres), artists: cleanTags(tags.artists), excludedGenres: cleanTags(tags.excludedGenres), excludedArtists: cleanTags(tags.excludedArtists) }))
+  profileRevision.value++
+}
+export const setProfileTagExcluded = (type: 'artists' | 'genres', tag: string, excluded: boolean) => {
+  const tags = getUserTags()
+  const key = type === 'artists' ? 'excludedArtists' : 'excludedGenres'
+  tags[key] = excluded ? [...new Set([...(tags[key] ?? []), tag])] : (tags[key] ?? []).filter(t => t !== tag)
+  if (excluded) tags[type] = tags[type].filter(t => t !== tag)
+  saveUserTags(tags)
+}
+const readEvents = (): ListeningEvent[] => {
   try {
-    const raw = localStorage.getItem(PROFILE_STORAGE_KEY)
-    if (raw) return JSON.parse(raw)
-  } catch (e) {
-    console.error('加载本地听歌画像数据异常:', e)
-  }
-  return {}
+    const data = JSON.parse(localStorage.getItem(EVENTS_STORAGE_KEY) ?? '{}')
+    if (data.version !== 2 || !Array.isArray(data.events)) return []
+    return data.events.filter((e: ListeningEvent) => e && typeof e.name === 'string' && typeof e.singer === 'string' && typeof e.sessionId === 'string' && Number.isFinite(e.at) && e.at <= Date.now() && e.at >= Date.now() - RETENTION_MS)
+      .slice(-5000).map((e: ListeningEvent) => ({ ...e, genres: normalizeGenres(e.genres), genreHints: normalizeGenres(e.genreHints), period: getListeningPeriod(e.at) }))
+  } catch { return [] }
 }
-
-const saveLocalProfileData = (data: Record<string, number>) => {
-  try {
-    localStorage.setItem(PROFILE_STORAGE_KEY, JSON.stringify(data))
-  } catch (e) {
-    console.error('保存本地听歌画像数据异常:', e)
-  }
+/** Called only after an effective listen; tools must not record merely requesting playback. */
+export const recordPlayedSong = (name: string, singer = '', options: { sessionId?: string, at?: number, track?: { name: string, meta?: { genre?: unknown } } } = {}) => {
+  if (!name.trim()) return
+  const events = readEvents()
+  const sessionId = options.sessionId ?? crypto.randomUUID()
+  if (events.some(e => e.sessionId === sessionId)) return
+  const at = options.at ?? Date.now()
+  const evidence = getGenreEvidence(options.track ?? { name })
+  events.push({ sessionId, name: name.slice(0, 300), singer: singer.slice(0, 500), genres: evidence.genres, genreHints: evidence.hints, at, period: getListeningPeriod(at) })
+  localStorage.setItem(EVENTS_STORAGE_KEY, JSON.stringify({ version: 2, events: events.slice(-5000) }))
+  profileRevision.value++
+  addProfileLog(`有效收听：${name} · ${periodLabels[getListeningPeriod(at)]}`)
 }
-
-// ─── 曲风关键词映射（从歌名/歌手推断） ─────────────────
 
 const genreKeywords: Record<MusicGenre, string[]> = {
   pop: ['流行', 'pop', 'Pop'],
@@ -94,16 +79,6 @@ const genreKeywords: Record<MusicGenre, string[]> = {
   metal: ['metal', '金属', '重金属', '摇滚'],
 }
 
-const guessGenreFromName = (name: string, singer?: string): MusicGenre | null => {
-  const text = `${name} ${singer ?? ''}`.toLowerCase()
-  for (const [genre, keywords] of Object.entries(genreKeywords)) {
-    if (keywords.some(kw => text.includes(kw.toLowerCase()))) {
-      return genre as MusicGenre
-    }
-  }
-  return null
-}
-
 // ─── 情绪标签推断（从歌名关键词） ──────────────────────
 
 const moodKeywords: Array<{ mood: string, keywords: string[] }> = [
@@ -114,14 +89,6 @@ const moodKeywords: Array<{ mood: string, keywords: string[] }> = [
   { mood: '安静', keywords: ['安静', '夜深', '入睡', '放空', '冥想', '静'] },
   { mood: '励志', keywords: ['梦', '未来', '希望', '前行', '相信', '勇气', '加油'] },
 ]
-
-const inferMood = (name: string): string | null => {
-  const text = `${name}`
-  for (const { mood, keywords } of moodKeywords) {
-    if (keywords.some(kw => text.includes(kw))) return mood
-  }
-  return null
-}
 
 /** 按歌名/歌手及可推断的情绪、曲风匹配，不使用随机生成的推荐文案。 */
 export const matchesMusicPreference = (name: string, singer: string, query: string): boolean => {
@@ -138,298 +105,128 @@ export const matchesMusicPreference = (name: string, singer: string, query: stri
   )
 }
 
-// ─── 语种推断（从歌手/歌名特征） ───────────────────────
 
-const inferLang = (name: string, singer?: string): string | null => {
-  const text = `${name} ${singer ?? ''}`
-  // 中文歌名（含中文常见字符）优先判为国语
-  if (/[一-龥]/.test(text)) {
-    if (/(粤|香港|Beyond|陈奕迅|杨千嬅|郑秀文)/.test(text)) return '粤语'
-    if (/(日|日本|日语|J-POP)/.test(text)) return '日语'
-    if (/(韩|韩国|K-POP|Korea)/.test(text)) return '韩语'
-    return '国语'
-  }
-  if (/[a-zA-Z]/.test(text)) return '英语'
-  return null
+export const isMusicExcluded = (song: { name: string, singer: string, meta?: { genre?: unknown } }): boolean => {
+  const tags = getUserTags()
+  const artists = new Set((tags.excludedArtists ?? []).map(a => a.toLowerCase()))
+  const genres = new Set(normalizeGenres(tags.excludedGenres))
+  return splitArtists(song.singer).some(a => artists.has(a.toLowerCase())) || getGenreEvidence(song).genres.some(g => genres.has(g))
 }
 
-// ─── 时段偏好分析 ───────────────────────────────────────
-
-const detectTimePeriod = (): TimePeriod => {
-  const h = new Date().getHours()
-  if (h >= 5 && h < 7) return 'dawn'
-  if (h >= 7 && h < 11) return 'morning'
-  if (h >= 11 && h < 13) return 'noon'
-  if (h >= 13 && h < 18) return 'afternoon'
-  if (h >= 18 && h < 21) return 'evening'
-  if (h >= 21 && h < 24) return 'night'
-  return 'lateNight'
-}
-
-// ─── 公开 API ───────────────────────────────────────────
-
-/**
- * 记录用户听歌/点播事件
- */
-export const recordPlayedSong = (songName: string, singer?: string) => {
-  if (!songName) return
-  const data = loadLocalProfileData()
-  const key = singer ? `${singer} - ${songName}` : songName
-  data[key] = (data[key] || 0) + 1
-  if (singer) {
-    const singerKey = `artist:${singer}`
-    data[singerKey] = (data[singerKey] || 0) + 1
-  }
-  saveLocalProfileData(data)
-  addProfileLog(`累加用户听歌轨迹: [${key}] (累计 ${data[key]} 次)`)
-  // 清除缓存，下次重新分析
-  cachedProfile = null
-}
-
-/**
- * 分析"我的喜爱"歌单与听歌历史，提取用户特征画像
- * 完全本地计算，无需 LLM
- */
+let cachedProfile: UserTasteProfile | null = null
+let lastProfileKey = ''
 export const analyzeUserProfile = (): UserTasteProfile => {
-  const songs = (loveList as any)?.list || []
-  const currentKey = JSON.stringify(songs.map((song: any) => [song.id, song.name, song.singer, song.artist]))
-
-  // 使用缓存（如果歌单没有变化）
-  if (cachedProfile && lastAnalyzedLoveListKey === currentKey) {
-    return cachedProfile
+  // This dependency makes computed settings update when new listening evidence arrives.
+  const revision = profileRevision.value
+  const songs = getFavoriteSongs()
+  const key = JSON.stringify([revision, songs, localStorage.getItem(EVENTS_STORAGE_KEY), localStorage.getItem(USER_TAGS_STORAGE_KEY), new Date().toDateString()])
+  if (cachedProfile && key === lastProfileKey) return cachedProfile
+  const tags = getUserTags()
+  const events = readEvents()
+  const blockedArtist = new Set((tags.excludedArtists ?? []).map(a => a.toLowerCase()))
+  const blockedGenre = new Set([...(tags.excludedGenres ?? []), ...normalizeGenres(tags.excludedGenres).map(g => genreLabels[g])])
+  const artists = new Map<string, { name: string, score: number, favorites: number, listens: number }>()
+  const genres = new Map<MusicGenre, number>()
+  const hints = new Set<MusicGenre>()
+  const known = new Set<string>()
+  const tracks = new Set<string>()
+  const countedFavorites = new Set<string>()
+  const playCounts: Record<string, number> = {}
+  const periods = new Map<TimePeriod, Map<string, { name: string, singer: string, count: number, lastPlayedAt: number }>>()
+  const addArtists = (singer: string, score: number, favorite: boolean) => {
+    const names = splitArtists(singer)
+    for (const name of names) {
+      const id = name.toLowerCase()
+      if (blockedArtist.has(id)) continue
+      const entry = artists.get(id) ?? { name, score: 0, favorites: 0, listens: 0 }
+      entry.score += score / names.length
+      if (favorite) entry.favorites++
+      else entry.listens++
+      artists.set(id, entry)
+    }
   }
-
-  const singerCountMap: Record<string, number> = {}
-  const genreCountMap: Record<string, number> = {}
-  const moodCountMap: Record<string, number> = {}
-  const langCountMap: Record<string, number> = {}
-
-  songs.forEach((song: any) => {
-    const singer = song.singer || song.artist
-    const songName = song.name || ''
-    if (singer) {
-      singerCountMap[singer] = (singerCountMap[singer] || 0) + 1
+  const addGenres = (name: string, singer: string, gs: MusicGenre[], hs: MusicGenre[], weight: number) => {
+    const id = trackIdentity(name, singer)
+    tracks.add(id)
+    if (gs.length) known.add(id)
+    for (const genre of gs) {
+      if (!blockedGenre.has(genreLabels[genre])) genres.set(genre, (genres.get(genre) ?? 0) + weight / gs.length)
     }
-
-    // 曲风推断
-    const genre = guessGenreFromName(songName, singer)
-    if (genre) {
-      genreCountMap[genre] = (genreCountMap[genre] || 0) + 1
-    }
-
-    // 情绪推断
-    const mood = inferMood(songName)
-    if (mood) {
-      moodCountMap[mood] = (moodCountMap[mood] || 0) + 1
-    }
-
-    // 语种推断
-    const lang = inferLang(songName, singer)
-    if (lang) {
-      langCountMap[lang] = (langCountMap[lang] || 0) + 1
-    }
-  })
-
-  // 合并本地播放数据
-  const localData = loadLocalProfileData()
-  Object.keys(localData).forEach((key) => {
-    if (key.startsWith('artist:')) {
-      const artistName = key.replace(/^artist:/, '')
-      singerCountMap[artistName] = (singerCountMap[artistName] || 0) + localData[key]
-    }
-  })
-
-  // 排序歌手
-  const sortedArtists = Object.keys(singerCountMap).sort(
-    (a, b) => singerCountMap[b] - singerCountMap[a],
-  )
-  const topArtists = sortedArtists.slice(0, 5)
-
-  // 排序曲风
-  const sortedGenres = Object.keys(genreCountMap)
-    .filter(k => (genreCountMap as any)[k] > 0)
-    .sort((a, b) => (genreCountMap as any)[b] - (genreCountMap as any)[a])
-    .slice(0, 5) as MusicGenre[]
-
-  const sampleCount = songs.length
-  const now = new Date()
-  const lastAnalyzedTime = `${now.getHours()}:${String(now.getMinutes()).padStart(2, '0')}`
-
-  // 合并用户手动编辑的标签
-  const userTags = loadUserTags()
-
-  const autoGenres = sortedGenres.length > 0
-    ? sortedGenres.map(g => {
-      const labelMap: Record<string, string> = {
-        pop: '流行',
-        rock: '摇滚',
-        'r&b': 'R&B',
-        jazz: '爵士',
-        classical: '古典',
-        electronic: '电子',
-        folk: '民谣',
-        ambient: '纯音乐',
-        citypop: 'CityPop',
-        chinese: '国风',
-        acoustic: '不插电',
-      }
-      return labelMap[g] || g
-    })
-    : ['R&B', '流行', '治愈系', 'CityPop', '纯音乐']
-
-  // 用户标签优先展示，去重
-  const genreTags = [...new Set([...userTags.genres, ...autoGenres])].slice(0, 8)
-  const mergedArtists = [...new Set([...userTags.artists, ...topArtists])].slice(0, 8)
-
-  // 计算曲风/歌手占比（基于出现次数）
-  const totalSingerCount = Math.max(1, Object.values(singerCountMap).reduce((s, n) => s + n, 0))
-  const totalGenreCount = Math.max(1, Object.values(genreCountMap).reduce((s, n) => s + n, 0))
-  const totalSongCount = Math.max(1, songs.length)
-
-  const artistDistribution = Object.entries(singerCountMap)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([name, count]) => ({ name, percent: Math.round(count / totalSingerCount * 100) }))
-
-  const genreDistribution = Object.entries(genreCountMap)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 5)
-    .map(([g, count]) => {
-      const labelMap: Record<string, string> = {
-        pop: '流行',
-        rock: '摇滚',
-        'r&b': 'R&B',
-        jazz: '爵士',
-        classical: '古典',
-        electronic: '电子',
-        folk: '民谣',
-        ambient: '纯音乐',
-        citypop: 'CityPop',
-        chinese: '国风',
-        acoustic: '不插电',
-        hiphop: '嘻哈',
-        kpop: '韩流',
-        edm: 'EDM',
-      }
-      return { name: labelMap[g] || g, percent: Math.round(count / totalGenreCount * 100) }
-    })
-
-  // 情绪标签：按出现次数排序，取有占比的
-  const moodTags = Object.entries(moodCountMap)
-    .sort((a, b) => b[1] - a[1])
-    .filter(([, count]) => count / totalSongCount >= 0.05)
-    .slice(0, 3)
-    .map(([mood]) => mood)
-
-  // 语种标签
-  const langTags = Object.entries(langCountMap)
-    .sort((a, b) => b[1] - a[1])
-    .filter(([, count]) => count / totalSongCount >= 0.05)
-    .slice(0, 3)
-    .map(([lang]) => lang)
-
+    for (const hint of hs) if (!blockedGenre.has(genreLabels[hint])) hints.add(hint)
+  }
+  for (const song of songs) {
+    const id = trackIdentity(song.name, song.singer)
+    if (countedFavorites.has(id)) continue
+    countedFavorites.add(id)
+    addArtists(song.singer, 2, true)
+    const evidence = getGenreEvidence(song)
+    addGenres(song.name, song.singer, evidence.genres, evidence.hints, 2)
+  }
+  for (const event of events) {
+    const weight = Math.pow(0.5, (Date.now() - event.at) / (30 * 86400000))
+    addArtists(event.singer, weight, false)
+    addGenres(event.name, event.singer, event.genres, event.genreHints, weight)
+    const legacyKey = event.singer ? `${event.singer} - ${event.name}` : event.name
+    playCounts[legacyKey] = (playCounts[legacyKey] ?? 0) + 1
+    const group = periods.get(event.period) ?? new Map()
+    const id = trackIdentity(event.name, event.singer)
+    const song = group.get(id) ?? { name: event.name, singer: event.singer, count: 0, lastPlayedAt: 0 }
+    song.count++
+    song.lastPlayedAt = Math.max(song.lastPlayedAt, event.at)
+    group.set(id, song)
+    periods.set(event.period, group)
+  }
+  const automaticArtists = [...artists.values()].sort((a, b) => b.score - a.score || a.name.localeCompare(b.name)).slice(0, 8)
+  const sortedGenres = [...genres.entries()].sort((a, b) => b[1] - a[1])
+  const totalGenres = sortedGenres.reduce((sum, [, value]) => sum + value, 0) || 1
+  const totalArtists = [...artists.values()].reduce((sum, a) => sum + a.score, 0) || 1
   const profile: UserTasteProfile = {
-    topArtists: mergedArtists,
-    topGenres: sortedGenres,
-    sampleCount,
-    genreTags,
-    genreDistribution,
-    artistDistribution,
-    moodTags,
-    langTags,
-    playCounts: localData,
-    lastAnalyzedTime,
+    topArtists: [...new Set([...tags.artists.filter(a => !blockedArtist.has(a.toLowerCase())), ...automaticArtists.map(a => a.name)])].slice(0, 8),
+    topGenres: [...new Set([...normalizeGenres(tags.genres), ...sortedGenres.map(([g]) => g)])].filter(g => !blockedGenre.has(genreLabels[g])).slice(0, 8),
+    genreTags: [...new Set([...tags.genres, ...sortedGenres.map(([g]) => genreLabels[g])])].filter(g => !blockedGenre.has(g)).slice(0, 8),
+    genreDistribution: sortedGenres.slice(0, 5).map(([g, score]) => ({ name: genreLabels[g], percent: Math.round(score / totalGenres * 100) })),
+    artistDistribution: automaticArtists.map(a => ({ name: a.name, percent: Math.round(a.score / totalArtists * 100) })),
+    sampleCount: countedFavorites.size,
+    automaticArtists,
+    inferredGenreTags: [...hints].filter(g => !genres.has(g)).map(g => genreLabels[g]),
+    knownGenreCount: known.size,
+    analyzedSongCount: tracks.size,
+    listeningCount: events.length,
+    timePeriodSongs: (Object.keys(periodLabels) as TimePeriod[]).map(period => ({ period, label: periodLabels[period], songs: [...(periods.get(period)?.values() ?? [])].sort((a, b) => b.count - a.count || b.lastPlayedAt - a.lastPlayedAt).slice(0, 5) })),
+    moodTags: [],
+    langTags: [],
+    playCounts,
+    lastAnalyzedTime: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
   }
-
-  // 更新缓存
   cachedProfile = profile
-  lastAnalyzedLoveListKey = currentKey
-
-  if (topArtists.length > 0) {
-    addProfileLog(`提取用户偏好画像: 最喜爱歌手 [${topArtists.join(', ')}]`)
-  } else {
-    addProfileLog('实时计算环境规则偏好: 包含 [R&B, 流行, 治愈系轻音乐]')
-  }
-
-  if (sortedGenres.length > 0) {
-    addProfileLog(`检测到用户曲风偏好: [${sortedGenres.join(', ')}]`)
-  }
-
+  lastProfileKey = key
   return profile
 }
 
-/**
- * 获取用户画像摘要字符串（用于 System Prompt）
- */
 export const getUserProfilePromptString = (): string => {
   const profile = analyzeUserProfile()
-  const artistsStr = profile.topArtists.length
-    ? profile.topArtists.join('、')
-    : '周杰伦、陈奕迅、林俊杰'
-  const genresStr = profile.genreTags.join('、')
-  const moodStr = profile.moodTags.length ? `；情绪倾向 [${profile.moodTags.join('、')}]` : ''
-  const langStr = profile.langTags.length ? `；语种偏好 [${profile.langTags.join('、')}]` : ''
-  const genreDistStr = profile.genreDistribution.length
-    ? `\n【曲风占比】${profile.genreDistribution.map(g => `${g.name} ${g.percent}%`).join('、')}。`
-    : ''
-  const aiSummary = getAiProfileSummary()
-
-  let prompt = `【用户基础听歌偏好】：偏爱歌手 [${artistsStr}]；常用曲风 [${genresStr}]${moodStr}${langStr}。${genreDistStr}`
-
-  if (aiSummary) {
-    prompt += `\n【用户长效 AI 深度心理与审美画像】：${aiSummary}\n请在推荐歌曲、播报串词与对话交流时，自然贴合该画像的性格与情感特点。`
-  } else {
-    prompt += '\n在推荐时请优先融入符合该审美偏好的歌曲或同风格且大众熟悉的热门或经典作品。'
-  }
-
-  return prompt
+  const tags = getUserTags()
+  const period = profile.timePeriodSongs.find(p => p.period === getListeningPeriod())
+  const parts = ['【音乐偏好（本地证据；优先满足用户本轮明确要求）】']
+  if (profile.topArtists.length) parts.push(`收藏或有效收听较多的歌手：${profile.topArtists.join('、')}`)
+  if (profile.genreTags.length) parts.push(`明确设置或歌曲标签支持的曲风：${profile.genreTags.join('、')}`)
+  if (period?.songs.length) parts.push(`当前时段常听（仅用于理解偏好，避免反复推荐相同歌曲）：${period.songs.map(s => `${s.name} / ${s.singer}`).join('；')}`)
+  if (tags.excludedArtists?.length) parts.push(`不推荐歌手：${tags.excludedArtists.join('、')}`)
+  if (tags.excludedGenres?.length) parts.push(`不推荐曲风：${tags.excludedGenres.join('、')}`)
+  if (parts.length === 1) parts.push('偏好数据不足，请根据当前请求推荐，不要假设个人偏好。')
+  return parts.join('\n')
 }
 
-/**
- * 获取时段推荐曲风（基于当前时间）
- */
+/** Learned period genres only; no hard-coded time-of-day taste. */
 export const getTimePeriodRecommendation = (): { period: TimePeriod, label: string, genres: string[] } => {
-  const period = detectTimePeriod()
-  const labels: Record<TimePeriod, string> = {
-    dawn: '清晨',
-    morning: '早晨',
-    noon: '正午',
-    afternoon: '下午',
-    evening: '傍晚',
-    night: '夜晚',
-    lateNight: '深夜',
-  }
-  const genreMap: Record<TimePeriod, string[]> = {
-    dawn: ['民谣', '不插电', '古典'],
-    morning: ['流行', '民谣', 'CityPop'],
-    noon: ['流行', 'R&B', '爵士'],
-    afternoon: ['爵士', 'Bossa Nova', '古典', '纯音乐'],
-    evening: ['CityPop', 'R&B', '流行', '摇滚'],
-    night: ['R&B', '纯音乐', '爵士', '电子'],
-    lateNight: ['纯音乐', '古典', '民谣'],
-  }
-
-  return {
-    period,
-    label: labels[period],
-    genres: genreMap[period] || ['流行'],
-  }
+  const period = getListeningPeriod()
+  const weights = new Map<MusicGenre, number>()
+  for (const event of readEvents().filter(e => e.period === period)) for (const genre of event.genres) weights.set(genre, (weights.get(genre) ?? 0) + 1)
+  const blocked = new Set(getUserTags().excludedGenres ?? [])
+  return { period, label: periodLabels[period], genres: [...weights.entries()].sort((a, b) => b[1] - a[1]).map(([g]) => genreLabels[g]).filter(g => !blocked.has(g)).slice(0, 5) }
 }
 
-// ─── AI 画像摘要（轻量版，可选 LLM 增强） ───────────────
-
-export const getAiProfileSummary = (): string => {
-  try {
-    return localStorage.getItem(AI_SUMMARY_STORAGE_KEY) ?? ''
-  } catch {
-    return ''
-  }
-}
-
-export const saveAiProfileSummary = (summary: string) => {
-  try {
-    localStorage.setItem(AI_SUMMARY_STORAGE_KEY, summary)
-  } catch (e) {
-    console.error('保存 AI 画像摘要失败:', e)
-  }
-}
+// Legacy summaries are kept for recovery but no longer injected as psychological traits.
+export const getAiProfileSummary = (): string => localStorage.getItem(AI_SUMMARY_STORAGE_KEY) ?? ''
+export const saveAiProfileSummary = (summary: string) => { localStorage.setItem(AI_SUMMARY_STORAGE_KEY, summary) }
+export const getLegacyProfileAvailable = (): boolean => !!localStorage.getItem(PROFILE_STORAGE_KEY)

@@ -297,11 +297,15 @@
           </div>
           <div class="list-item-cell" style="flex: 0 0 28%;"><span class="select" :aria-label="item.meta.albumName">{{ item.meta.albumName }}</span></div>
           <div class="list-item-cell" style="flex: 0 0 15%; text-align: center;">
-            <span
-              :style="{ color: isLovedSong(item) ? '#ec4141' : 'var(--color-font-label)', cursor: 'pointer', opacity: isLovedSong(item) ? 1 : 0.45 }"
-              :title="isLovedSong(item) ? '已喜欢' : '添加到我的喜爱'"
+            <button
+              type="button"
+              :class="$style.loveSongBtn"
+              :style="{ color: isLovedSong(item) ? 'var(--color-primary)' : 'var(--color-font-label)' }"
+              :title="isLovedSong(item) ? '已在我的喜爱中' : '添加到我的喜爱'"
+              :aria-label="isLovedSong(item) ? `${item.name}已在我的喜爱中` : `添加${item.name}到我的喜爱`"
+              :disabled="isLovedSong(item)"
               @click.stop="toggleLoveSong(item)"
-            >{{ isLovedSong(item) ? '♥' : '♡' }}</span>
+            >{{ isLovedSong(item) ? '♥' : '♡' }}</button>
           </div>
           <div class="list-item-cell" style="flex: 0 0 15%;"><span class="no-select">{{ item.interval || '--/--' }}</span></div>
         </div>
@@ -324,6 +328,7 @@
           class="list-item"
           :class="[{ [$style.active]: playerInfo.isPlayList && (playerInfo.playIndex === index || playerInfo.playMusicId === item.id) }, { selected: selectedIndex == index || rightClickSelectedIndex == index }, { active: selectedList.includes(item) }, { disabled: !assertApiSupport(item.source) }]"
           @click="handleListItemClick($event, index)"
+          @dblclick="handlePlayMusic(index)"
           @contextmenu="handleListItemRightClick($event, index)"
         >
           <div class="list-item-cell no-select" :class="$style.num" style="flex: 0 0 5%;">
@@ -348,7 +353,7 @@
           <div class="list-item-cell" style="flex: 0 0 22%;"><span class="select" :aria-label="item.singer">{{ item.singer }}</span></div>
           <div class="list-item-cell" style="flex: 0 0 22%;"><span class="select" :aria-label="item.meta.albumName">{{ item.meta.albumName }}</span></div>
           <div class="list-item-cell" style="flex: 0 0 9%;"><span class="no-select">{{ item.interval || '--/--' }}</span></div>
-          <div class="list-item-cell" style="flex: 0 0 16%; padding-left: 0; padding-right: 0;">
+          <div class="list-item-cell" style="flex: 0 0 16%; padding-left: 0; padding-right: 0;" @dblclick.stop>
             <material-list-buttons :index="index" :download-btn="assertApiSupport(item.source) && item.source != 'local' && listId !== LIST_IDS.LOCAL" @btn-click="handleListBtnClick" />
           </div>
         </div>
@@ -370,6 +375,7 @@
           class="list-item"
           :class="[{ [$style.active]: playerInfo.isPlayList && (playerInfo.playIndex === index || playerInfo.playMusicId === item.id) }, { selected: selectedIndex == index || rightClickSelectedIndex == index }, { active: selectedList.includes(item) }, { disabled: !assertApiSupport(item.source) }]"
           @click="handleListItemClick($event, index)"
+          @dblclick="handlePlayMusic(index)"
           @contextmenu="handleListItemRightClick($event, index)"
         >
           <div class="list-item-cell no-select" :class="$style.num" style="flex: 0 0 5%;">
@@ -588,7 +594,6 @@ export default {
       handlePlayMusic,
       handlePlayAll,
       handlePlayMusicLater,
-      doubleClickPlay,
     } = usePlay({ props, selectedList, list: displayList, removeAllSelect })
 
     const {
@@ -750,7 +755,7 @@ export default {
 
     const isLovedSong = (item) => {
       const list = loveList?.list || []
-      return list.some(s => s.id === item.id || (s.name === item.name && s.singer === item.singer))
+      return list.some(s => (item.id && s.id === item.id) || (s.name === item.name && s.singer === item.singer))
     }
 
     const toggleLoveSong = (item) => {
@@ -809,7 +814,6 @@ export default {
     const handleListItemClick = (event, index) => {
       if (rightClickSelectedIndex.value > -1) return
       handleSelectData(index)
-      doubleClickPlay(index)
     }
     const handleListItemRightClick = (event, index) => {
       rightClickSelectedIndex.value = index
@@ -900,6 +904,7 @@ export default {
       headerCover,
       isShowMetaModal,
       handlePlayAll,
+      handlePlayMusic,
       handleBatchDownload,
       listItemHeight,
       handleListItemClick,
@@ -1528,5 +1533,15 @@ export default {
     opacity: 1 !important;
     font-weight: bold;
   }
+}
+
+.loveSongBtn {
+  border: 0;
+  background: transparent;
+  padding: 6px 10px;
+  font-size: 16px;
+  cursor: pointer;
+  &:disabled { cursor: default; }
+  &:focus-visible { outline: 2px solid var(--color-primary); outline-offset: 2px; }
 }
 </style>

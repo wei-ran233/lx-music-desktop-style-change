@@ -4,6 +4,7 @@ import { setTitle } from '@renderer/utils'
 
 import {
   getCurrentTime,
+  onTimeupdate,
   getDuration,
   setPause, setStop,
 } from '@renderer/plugins/player'
@@ -16,7 +17,9 @@ import {
   musicInfo,
   playMusicInfo,
   playedList,
+  isPlay,
 } from '@renderer/store/player/state'
+import { createListeningTracker } from '@renderer/utils/dj/listeningProfile'
 import { recordPlayedSong } from '@renderer/utils/dj/userProfile'
 import {
   setPlay,
@@ -43,6 +46,22 @@ import usePreloadNextMusic from './usePreloadNextMusic'
 
 export default () => {
   const t = useI18n()
+  let listeningSessionId = crypto.randomUUID()
+  const listeningTracker = createListeningTracker((at) => {
+    const item = playMusicInfo.musicInfo
+    const track = item && 'progress' in item ? item.metadata.musicInfo : item
+    if (!track) return
+    try { recordPlayedSong(track.name, track.singer, { sessionId: listeningSessionId, at, track }) } catch (error) { console.error('保存收听偏好失败:', error) }
+  })
+  const resetListeningSession = () => {
+    listeningSessionId = crypto.randomUUID()
+    listeningTracker.reset()
+  }
+  const interruptListening = () => { listeningTracker.interrupt() }
+  const removeListeningTimeupdate = onTimeupdate(() => {
+    listeningTracker.tick(getCurrentTime(), getDuration(), isPlay.value)
+  })
+  window.app_event.on('setProgress', interruptListening)
 
   usePlayProgress()
   useMediaSessionInfo()
@@ -66,19 +85,23 @@ export default () => {
     setPowerSaveBlocker(true)
   }
   const removePowerSaveBlocker = () => {
+    interruptListening()
     setPowerSaveBlocker(false)
   }
 
   const setPlayStatus = () => {
+    interruptListening()
     setPlay(true)
   }
   const setPauseStatus = () => {
+    interruptListening()
     setPlay(false)
     if (window.lx.isPlayedStop) pause()
     removePowerSaveBlocker()
   }
 
   const handleUpdatePlayInfo = () => {
+    resetListeningSession()
     setTitle(musicInfo.id ? `${musicInfo.name} - ${musicInfo.singer}` : null)
   }
 
@@ -86,13 +109,11 @@ export default () => {
     if (window.lx.isPlayedStop) {
       setPause()
     }
-    // 全局监听播放行为：无论是否使用 DJ 功能，都记录用户实际听过的歌曲
-    if (musicInfo.name) {
-      recordPlayedSong(musicInfo.name, musicInfo.singer)
-    }
   }
   const handleEnded = () => {
     // setTimeout(() => {
+    listeningTracker.tick(getCurrentTime(), getDuration(), isPlay.value)
+    resetListeningSession()
     setAllStatus(t('player__end'))
     if (window.lx.isPlayedStop) {
       console.log('played stop')
@@ -125,6 +146,7 @@ export default () => {
   }
 
   const setStopStatus = () => {
+    resetListeningSession()
     setPlay(false)
     setTitle(null)
     setAllStatus('')
@@ -163,7 +185,9 @@ export default () => {
 
 
   onBeforeUnmount(() => {
-  // eslint-disable-next-line @typescript-eslint/no-misused-promises
+    removeListeningTimeupdate()
+    window.app_event.off('setProgress', interruptListening)
+    // eslint-disable-next-line @typescript-eslint/no-misused-promises
     window.key_event.off(HOTKEY_PLAYER.next.action, handlePlayNext)
     // eslint-disable-next-line @typescript-eslint/no-misused-promises
     window.key_event.off(HOTKEY_PLAYER.prev.action, handlePlayPrev)

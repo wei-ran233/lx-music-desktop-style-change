@@ -149,7 +149,7 @@ export const isShowChangeLog = ref(false)
 export const isFullscreen = ref(false)
 export const isWindowMaximized = ref(false)
 watch([isFullscreen, isWindowMaximized], ([isFullscreen, isWindowMaximized]) => {
-  window.lx.rootOffset = window.dt || isFullscreen || isWindowMaximized ? 0 : 8
+  window.lx.rootOffset = !window.isTransparent || isFullscreen || isWindowMaximized ? 0 : 8
 }, { immediate: true })
 
 export const themeShouldUseDarkColors = ref(window.shouldUseDarkColors)

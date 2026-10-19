@@ -138,7 +138,6 @@
           >
             <DjIcon :name="isSpeechEnabled ? 'volume' : 'mute'" />
           </button>
-          <button type="button" :class="$style.settingIconBtn" title="播放队列" :aria-expanded="showQueue" @click="showQueue = !showQueue"><DjIcon name="queue" /></button>
           <button :class="$style.settingIconBtn" title="AI DJ 设置" @click="showSettingModal = true">
             <DjIcon name="settings" />
           </button>
@@ -336,7 +335,6 @@
     </div>
 
     <Teleport to="body"><div v-if="renameTarget" :class="$style.renameOverlay" @click.self="renameTarget = null"><form :class="$style.renameDialog" role="dialog" aria-modal="true" aria-label="重命名对话" @submit.prevent="commitRename"><h3>重命名对话</h3><input v-model="renameTitle" maxlength="80" aria-label="对话名称" autofocus @keydown.esc="renameTarget = null" /><div><button type="button" @click="renameTarget = null">取消</button><button type="submit" :disabled="!renameTitle.trim()">保存名称</button></div></form></div></Teleport>
-    <QueueDrawer v-if="showQueue" @close="showQueue = false" />
     <DjSettingModal v-model:visible="showSettingModal" @save="onSaveSetting" />
   </div>
 </template>
@@ -346,7 +344,6 @@ import { ref, computed, watch, nextTick, onMounted, onUnmounted } from '@common/
 import DjIcon from '@renderer/components/common/SvgIcon.vue'
 import { hasLlmConfiguration } from '@renderer/utils/dj/ai/modelsManager'
 import MessageContent from './components/MessageContent.vue'
-import QueueDrawer from './components/QueueDrawer.vue'
 import DjSettingModal from './components/DjSettingModal.vue'
 import { djSettings, saveDjSettings } from '@renderer/store/dj'
 import { fetchDynamicSuggestions } from '@renderer/utils/dj/llmService'
@@ -362,9 +359,12 @@ import { generateGreeting } from '@renderer/utils/dj/templateEngine'
 import { analyzeUserProfile } from '@renderer/utils/dj/userProfile'
 import { dialog } from '@renderer/plugins/Dialog'
 
+// Keep mode with the module-level messages and active history when revisiting.
+const mode = ref('dj')
+
 export default {
   name: 'DjChatGPTIntegratedView',
-  components: { DjSettingModal, DjIcon, QueueDrawer, MessageContent },
+  components: { DjSettingModal, DjIcon, MessageContent },
   setup() {
     const streamRef = ref(null)
     const followStream = ref(true)
@@ -392,8 +392,6 @@ export default {
     const beginRename = (item) => { renameTarget.value = item; renameTitle.value = item.title }
     const commitRename = () => { if (renameTarget.value) renameHistory(renameTarget.value, renameTitle.value); renameTarget.value = null }
     const isSidebarOpen = ref(true)
-    const showQueue = ref(false)
-    const mode = ref('dj')
     const showSettingModal = ref(false)
     const currentDateStr = ref('')
     const aiOpeningGreeting = ref('')
@@ -465,6 +463,18 @@ export default {
       document.querySelectorAll('textarea[aria-label="消息内容"]').forEach(input => { input.style.height = 'auto' })
     })
 
+    // Persist streaming, stopped, and automatic turns as well as completed replies.
+    let historySaveTimer = null
+    const flushSession = () => {
+      clearTimeout(historySaveTimer)
+      historySaveTimer = null
+      saveCurrentSession(messageList.value, mode.value)
+    }
+    watch(messageList, () => {
+      clearTimeout(historySaveTimer)
+      historySaveTimer = setTimeout(flushSession, 500)
+    }, { deep: true, flush: 'sync' })
+
     // 自动刷新天气
     const initEnvironment = async() => {
       await refreshWeather()
@@ -514,6 +524,7 @@ export default {
     }
 
     onMounted(() => {
+      window.addEventListener('beforeunload', flushSession)
       updateCurrentTime()
       void initEnvironment()
       preloadMusicCardCovers(messageList.value)
@@ -533,6 +544,8 @@ export default {
 
     onUnmounted(() => {
       stopGeneration()
+      flushSession()
+      window.removeEventListener('beforeunload', flushSession)
       cancelMessageSpeech()
       stopDjSpeech()
       // 离开页面标记为非活跃，避免未使用 DJ 时也触发自动连播
@@ -555,6 +568,7 @@ export default {
       stopGeneration()
       cancelMessageSpeech()
       stopDjSpeech()
+      flushSession()
       mode.value = newMode
       setDjMode(newMode)
       // 切换模式时开始新对话
@@ -565,10 +579,12 @@ export default {
     }
 
     // 新对话
-    const startNewChat = () => {
+    const startNewChat = (save = true) => {
       stopGeneration()
       cancelMessageSpeech()
       stopDjSpeech()
+      if (save) flushSession()
+      else clearTimeout(historySaveTimer)
       historyStartNewChat()
       clearMessages()
       generateAiGreeting()
@@ -585,7 +601,7 @@ export default {
       const wasActive = activeHistoryId.value === item.id
       rawDeleteHistory(item)
       if (wasActive) {
-        startNewChat()
+        startNewChat(false)
       }
     }
 
@@ -604,6 +620,7 @@ export default {
       stopGeneration()
       cancelMessageSpeech()
       stopDjSpeech()
+      flushSession()
       setConversationId(item.id)
       const messages = selectHistory(item)
       if (messages) {
@@ -627,7 +644,7 @@ export default {
       if (!confirm) return
       const wasActive = currentHistoryList.value.some(item => item.id === activeHistoryId.value)
       clearCurrentCategoryHistory()
-      if (wasActive) startNewChat()
+      if (wasActive) startNewChat(false)
     }
 
     // 快捷控制：连播开关、语音播报开关、DJ 一键切歌
@@ -698,7 +715,7 @@ export default {
           if (audioUrl.startsWith('blob:')) URL.revokeObjectURL(audioUrl)
           return
         }
-        playDjSpeech(audioUrl)
+        await playDjSpeech(audioUrl)
       } catch (err) {
         if (err.name !== 'AbortError') void dialog({ message: `朗读失败：${err.message}` })
       } finally {
@@ -753,7 +770,6 @@ export default {
     const enqueueMusic = async(card) => {
       try {
         await enqueueMusicCard(card)
-        showQueue.value = true
       } catch (error) { void dialog({ message: error.message }) }
     }
     const retryMessage = (index) => {
@@ -791,7 +807,6 @@ export default {
       beginRename,
       commitRename,
       isSidebarOpen,
-      showQueue,
       enqueueMusic,
       retryMessage,
       generationStatus,

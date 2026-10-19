@@ -8,6 +8,7 @@ let fadeInterval: NodeJS.Timeout | null = null
 let isDucking = false
 let savedOriginalVolume = 1
 let activeObjectUrl: string | null = null
+let rejectPendingStart: ((error: Error) => void) | null = null
 
 const getDjAudioTrack = (): HTMLAudioElement => {
   if (!djAudioTrack) {
@@ -92,81 +93,53 @@ const getBestVoice = (lang = 'zh-CN', preferredVoice = ''): SpeechSynthesisVoice
 }
 
 /**
- * 使用原生 SpeechSynthesis 播报
- */
-const speakWithWebSpeech = (text: string) => {
-  if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
-    onSpeechEnd()
-    return
-  }
-
-  try {
-    window.speechSynthesis.cancel()
-    const utterance = new SpeechSynthesisUtterance(text)
-    utterance.lang = djSettings.ttsLang || 'zh-CN'
-    utterance.rate = djSettings.ttsSpeed || 1
-    utterance.pitch = djSettings.ttsPitch || 1
-
-    const voice = getBestVoice(djSettings.ttsLang, djSettings.ttsVoice)
-    if (voice) utterance.voice = voice
-
-    utterance.onend = () => {
-      onSpeechEnd()
-    }
-    utterance.onerror = (e) => {
-      console.error('WebSpeech Synthesis 错误:', e)
-      onSpeechEnd()
-    }
-
-    window.speechSynthesis.speak(utterance)
-  } catch (err) {
-    console.error('speakWithWebSpeech 抛出异常:', err)
-    onSpeechEnd()
-  }
-}
-
-/**
  * 播放 DJ TTS 语音串场并启动双轨降频闪避 (Audio Ducking)
  */
-export const playDjSpeech = (audioSrc: string) => {
+export const playDjSpeech = async(audioSrc: string): Promise<void> => {
   stopDjSpeech()
-
-  const startDuckingAndPlay = (playFn: () => void) => {
-    if (!isDucking) {
-      isDucking = true
-      savedOriginalVolume = appSetting['player.volume'] ?? 1
-      const duckTargetVolume = savedOriginalVolume * (djSettings.duckingVolume / 100)
-
-      fadePlayerVolume(duckTargetVolume, 350, playFn)
-    } else {
-      playFn()
+  return new Promise<void>((resolve, reject) => {
+    let settled = false
+    const timer = setTimeout(() => { fail(new Error('语音音频启动超时，请检查音频输出设备')) }, 15000)
+    const finish = (error?: Error) => {
+      if (settled) return
+      settled = true
+      clearTimeout(timer)
+      rejectPendingStart = null
+      if (error) reject(error)
+      else resolve()
     }
-  }
-
-  // 1. 本地 SpeechSynthesis 协议
-  if (audioSrc.startsWith('speech:')) {
-    const text = decodeURIComponent(audioSrc.replace(/^speech:/, ''))
-    startDuckingAndPlay(() => {
-      speakWithWebSpeech(text)
-    })
-    return
-  }
-
-  // 2. 音频网络/Blob URL
-  const audio = getDjAudioTrack()
-  audio.src = audioSrc
-  activeObjectUrl = audioSrc.startsWith('blob:') ? audioSrc : null
-
-  startDuckingAndPlay(() => {
-    audio.play().catch((err) => {
-      console.warn('Audio.play 失败，回退至 WebSpeech:', err)
-      const cleanText = audioSrc.includes('audio=') ? decodeURIComponent(audioSrc.split('audio=')[1].split('&')[0]) : ''
-      if (cleanText) {
-        speakWithWebSpeech(cleanText)
-      } else {
-        onSpeechEnd()
+    const fail = (error: Error) => {
+      finish(error)
+      onSpeechEnd()
+    }
+    rejectPendingStart = finish
+    const start = () => {
+      if (settled) return
+      if (audioSrc.startsWith('speech:')) {
+        if (!window.speechSynthesis) { fail(new Error('系统语音不可用')); return }
+        const utterance = new SpeechSynthesisUtterance(decodeURIComponent(audioSrc.slice(7)))
+        utterance.lang = djSettings.ttsLang || 'zh-CN'
+        utterance.rate = djSettings.ttsSpeed || 1
+        utterance.pitch = djSettings.ttsPitch || 1
+        const voice = getBestVoice(djSettings.ttsLang, djSettings.ttsVoice)
+        if (voice) utterance.voice = voice
+        utterance.onstart = () => { finish() }
+        utterance.onend = onSpeechEnd
+        utterance.onerror = () => { fail(new Error('系统语音播放失败，请检查音色或选择云端语音')) }
+        window.speechSynthesis.speak(utterance)
+        return
       }
-    })
+      const audio = getDjAudioTrack()
+      audio.src = audioSrc
+      activeObjectUrl = audioSrc.startsWith('blob:') ? audioSrc : null
+      audio.play().then(() => { finish() }).catch((error: Error) => {
+        fail(new Error(`音频播放失败：${error.message}`))
+      })
+    }
+    savedOriginalVolume = appSetting['player.volume'] ?? 1
+    isDucking = true
+    const ratio = Number.isFinite(djSettings.duckingVolume) ? Math.max(0, Math.min(100, djSettings.duckingVolume)) / 100 : 0.2
+    fadePlayerVolume(savedOriginalVolume * ratio, 350, start)
   })
 }
 
@@ -174,6 +147,10 @@ export const playDjSpeech = (audioSrc: string) => {
  * 强制停止 DJ 播报并立刻恢复主音量
  */
 export const stopDjSpeech = () => {
+  const cancelStart = rejectPendingStart
+  rejectPendingStart = null
+  cancelStart?.(Object.assign(new Error('语音播放已取消'), { name: 'AbortError' }))
+  clearFadeInterval()
   if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
     window.speechSynthesis.cancel()
   }

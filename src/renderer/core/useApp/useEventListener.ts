@@ -83,7 +83,7 @@ const applyWindowStatus = (status: { isFullscreen: boolean, isMaximized: boolean
 
 const applyWindowFrameState = () => {
   const edgeToEdge = isFullscreen.value || isWindowMaximized.value
-  const transparentClass = window.dt ? 'disableTransparent' : 'transparent'
+  const transparentClass = window.isTransparent ? 'transparent' : 'disableTransparent'
 
   document.documentElement.classList.toggle('fullscreen', isFullscreen.value)
   document.documentElement.classList.toggle('maximized', isWindowMaximized.value)

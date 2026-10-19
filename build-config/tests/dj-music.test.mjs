@@ -19,13 +19,13 @@ const compile = async(path, replacements = {}) => {
 }
 const statePath = join(directory, 'ports.mjs')
 await writeFile(statePath, `
-export const loveList = {list:[]}; export const djSettings = {};
+export const loveList = {list:[]}; export const getListMusicsFromCache=()=>loveList.list; export const getListMusics=async()=>loveList.list; export const djSettings = {};
 export {ref,computed} from ${JSON.stringify(import.meta.resolve('vue'))};
 export let llmConfigured=true; export const setLlmConfigured=value=>{llmConfigured=value}; export const hasLlmConfiguration=()=>llmConfigured;
 export let streamCallbacks; export let streamOptions; export let finishStream;
 export const sendLlmStreamMessage=async(history,mode,weather,callbacks,options)=>{streamCallbacks=callbacks;streamOptions=options;await new Promise(resolve=>{finishStream=resolve})};
 export let finishSpeech; export let speechStarted; export const spoken=[];
-export const synthesizeSpeech=async()=>new Promise(resolve=>{finishSpeech=resolve;speechStarted?.()});
+export const synthesizeSpeech=async()=>{const value=await new Promise(resolve=>{finishSpeech=resolve;speechStarted?.()});if(value instanceof Error)throw value;return value};
 export const playDjSpeech=url=>spoken.push(url); export const setVolume=()=>{}; export const appSetting={};
 export const tempPlayList=[]; export const addTempPlayList=items=>tempPlayList.push(...items);
 export const getCurrentDjWeatherContext=()=>({text:'晴',type:'sunny'});
@@ -50,7 +50,12 @@ const originalStorage = globalThis.localStorage
 const originalNow = Date.now
 try {
   globalThis.localStorage = ports.localStorage
+  const listening = await compile('src/renderer/utils/dj/listeningProfile.ts')
   const profile = await compile('src/renderer/utils/dj/userProfile.ts', {
+    "'./listeningProfile'": JSON.stringify(listening.url),
+    "'@renderer/store/list/action'": JSON.stringify(portsUrl),
+    "'@common/constants'": JSON.stringify(portsUrl),
+    "'@common/utils/vueTools'": JSON.stringify(portsUrl),
     "'@renderer/store/list/state'": JSON.stringify(portsUrl),
     "'@renderer/store/dj'": JSON.stringify(portsUrl),
   })
@@ -153,11 +158,11 @@ try {
     profile.module.saveUserTags({ artists: ['手动歌手'], genres: [] })
     assert.equal(profile.module.analyzeUserProfile().topArtists[0], '手动歌手')
   })
-  await check('playback records once, after successful playlist injection, and cancellation has no side effects', async() => {
+  await check('playback dispatch does not count a listen before audible progress and cancellation has no side effects', async() => {
     ports.storage.clear()
     ports.playInfo.playerListId = 'current'
     await playMusicTrack(song('played', '已播放'))
-    assert.equal(profile.module.analyzeUserProfile().playCounts['歌手 - 已播放'], 1)
+    assert.equal(profile.module.analyzeUserProfile().playCounts['歌手 - 已播放'], undefined)
     assert.deepEqual(ports.events.map(event => Array.isArray(event) ? event[0] : event), ['add', 'set', 'play'])
     ports.setFailAdd(true)
     await assert.rejects(() => playMusicTrack(song('failed', '失败歌曲')), /fixture add failed/)
@@ -207,6 +212,7 @@ try {
   const handleEnded = await loadFunction('src/renderer/core/useApp/usePlayer/usePlayer.ts', 'handleEnded', {
     setAllStatus() {}, t: value => value, window: { lx: { isPlayedStop: false } },
     notifyDjSongEnded: audio.module.notifyDjSongEnded, playNext,
+    listeningTracker: { tick() {} }, resetListeningSession() {}, getCurrentTime: () => 0, getDuration: () => 180, isPlay: { value: true },
   })
   await check('deleting a message aborts the stream before stale callbacks can update shifted entries', async() => {
     const sending = c.sendMessage('chat', '晴', 'sunny', undefined, { query: 'hello' })
@@ -218,6 +224,21 @@ try {
     assert.equal(c.messageList.value[0].text, text)
     ports.finishStream()
     await sending
+    c.clearMessages()
+  })
+  await check('automatic DJ speech failure is visible and not overwritten by completion', async() => {
+    ports.djSettings.enableDjSpeech = true
+    ports.djSettings.djAutoPlay = false
+    const sending = c.sendMessage('dj', '晴', 'sunny', undefined, { query: '测试播报错误' })
+    const completion = ports.streamCallbacks.onComplete('播报测试回复')
+    await new Promise(resolve => setImmediate(resolve))
+    ports.finishSpeech(new Error('fixture TTS timeout'))
+    await completion
+    ports.finishStream()
+    await sending
+    assert.equal(c.generationStatus.value.phase, 'error')
+    assert.match(c.generationStatus.value.text, /语音播报失败.*fixture TTS timeout/)
+    ports.djSettings.enableDjSpeech = false
     c.clearMessages()
   })
   await check('muting while TTS is pending prevents delayed speech playback', async() => {
@@ -286,6 +307,25 @@ try {
     assert.deepEqual(ports.tempPlayList.map(item => item.musicInfo.id), ['batch-b', 'batch-c'])
     ports.finishStream()
     await sending
+    ports.tempPlayList.length = 0
+    c.clearMessages()
+  })
+  await check('recommended song batch automatically synthesizes and starts narration', async() => {
+    ports.djSettings.enableDjSpeech = true
+    ports.djSettings.djAutoPlay = true
+    const sending = c.sendMessage('dj', '晴', 'sunny', undefined, { query: '推荐歌曲并播报' })
+    const tracks = [song('narrated-a', '播报甲'), song('narrated-b', '播报乙')]
+    for (const track of tracks) ports.streamOptions.onFoundMusicCard({ ...track, track })
+    const completion = ports.streamCallbacks.onComplete('这两首歌适合现在的心情')
+    await new Promise(resolve => setImmediate(resolve))
+    assert.equal(c.generationStatus.value.phase, 'speaking')
+    assert.equal(ports.tempPlayList.at(-1).musicInfo.id, 'narrated-b')
+    ports.finishSpeech('blob:automatic-narration')
+    await completion
+    assert.equal(ports.spoken.at(-1), 'blob:automatic-narration')
+    ports.finishStream()
+    await sending
+    ports.djSettings.enableDjSpeech = false
     ports.tempPlayList.length = 0
     c.clearMessages()
   })

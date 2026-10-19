@@ -119,7 +119,7 @@ export const createWindow = () => {
     width: windowSizeInfo.width,
     frame: false,
     transparent: !isLinux && !global.envParams.cmdParams.dt,
-    hasShadow: global.envParams.cmdParams.dt,
+    hasShadow: isLinux || global.envParams.cmdParams.dt,
     // enableRemoteModule: false,
     // icon: join(global.__static, isWin ? 'icons/256x256.ico' : 'icons/512x512.png'),
     resizable: true,
@@ -147,7 +147,7 @@ export const createWindow = () => {
   browserWindow = new BrowserWindow(options)
 
   const winURL = process.env.NODE_ENV !== 'production' ? 'http://localhost:9080' : `file://${path.join(encodePath(__dirname), 'index.html')}`
-  void browserWindow.loadURL(winURL + `?os=${getPlatform()}&dt=${global.envParams.cmdParams.dt}&dark=${shouldUseDarkColors}&theme=${encodeURIComponent(JSON.stringify(theme))}`)
+  void browserWindow.loadURL(winURL + `?os=${getPlatform()}&dt=${global.envParams.cmdParams.dt}&transparent=${options.transparent === true}&dark=${shouldUseDarkColors}&theme=${encodeURIComponent(JSON.stringify(theme))}`)
 
   winEvent()
 

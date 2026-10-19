@@ -246,8 +246,8 @@ export default {
 }
 
 .activePill {
-  background-color: var(--color-primary-light-900-alpha-200);
-  color: #ec4141 !important;
+  background-color: var(--color-primary-light-800-alpha-400);
+  color: var(--color-primary) !important;
   font-weight: 600;
 }
 
@@ -285,7 +285,7 @@ export default {
   padding: 8px 40px;
   border-radius: 20px;
   border: none;
-  background-color: #ec4141;
+  background-color: var(--color-primary);
   color: #fff;
   font-size: 13px;
   font-weight: 600;

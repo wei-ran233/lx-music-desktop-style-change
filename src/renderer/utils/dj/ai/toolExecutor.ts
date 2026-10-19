@@ -8,7 +8,6 @@ import { playInfo } from '@renderer/store/player/state'
 import { addListMusics } from '@renderer/store/list/action'
 import { LIST_IDS } from '@common/constants'
 import { recommendFromLoveList } from '@renderer/utils/dj/templateEngine'
-import { recordPlayedSong } from '@renderer/utils/dj/userProfile'
 import type { MusicCard, WeatherType, DjMode, GenerationStatus } from '@renderer/utils/dj/types'
 
 const isNonOriginal = (name: string, singer?: string): boolean => {
@@ -114,12 +113,10 @@ export async function playMusicTrack(musicInfo: LX.Music.MusicInfo) {
     await addListMusics(currentListId, [musicInfo])
     setPlayMusicInfo(currentListId, musicInfo, false)
     handlePlay()
-    recordPlayedSong(musicInfo.name, musicInfo.singer)
     return
   }
   setPlayMusicInfo(LIST_IDS.PLAY_LATER, musicInfo, true)
   handlePlay()
-  recordPlayedSong(musicInfo.name, musicInfo.singer)
 }
 
 export interface ToolExecutionContext {
